@@ -31,26 +31,26 @@ def winner(s:State) -> Optional[np.int8]:
     for y in range(0, ysize):
         for x in range(0, xsize-3):
             actor = s[y][x]
-            if s[y][x+1] == actor and s[y][x+2] == actor and s[y][x+3] == actor:
-                return 1
+            if actor != 0 and s[y][x+1] == actor and s[y][x+2] == actor and s[y][x+3] == actor:
+                return actor
     # check vertical
     for x in range(0, xsize):
         for y in range(0, ysize-3):
             actor = s[y][x]
             if actor != 0 and s[y+1][x] == actor and s[y+2][x] == actor and s[y+3][x] == actor:
-                return 1
+                return actor
     # check diagonals 1 way
     for y in range(0, ysize-3):
         for x in range(0, xsize-3):
             actor = s[y][x]
             if actor != 0 and s[y+1][x+1] == actor and s[y+2][x+2] == actor and s[y+3][x+3] == actor:
-                return 1
+                return actor
     # check diagonals other way
     for y in range(0, ysize-3):
         for x in range(3, xsize):
             actor = s[y][x]
             if actor != 0 and s[y+1][x-1] == actor and s[y+2][x-2] == actor and s[y+3][x-3] == actor:
-                return 1
+                return actor
     # finally return None if no winner found
     return None
 
@@ -67,7 +67,7 @@ class Env():
     ):
         self.state: State = initial_state()
 
-    def reset(self):
+    def reset(self) -> None:
         self.state = initial_state()
 
     def observe(self, actor: np.int8) -> Observation:
@@ -93,6 +93,9 @@ class Env():
 
         return (r, o)
 
-    def render(self):
-        print(self.state)
+    def render(self) -> None:
+        for row in reversed(self.state):
+            for x in row:
+                print(x, end=" ")
+            print()
         print()
