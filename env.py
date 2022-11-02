@@ -1,21 +1,24 @@
 import numpy as np
-from typing import Optional
+import numpy.typing as npt;
+from typing import Optional, TypeAlias
 
 # State of the board
-State = np.ndarray[(6, 7), np.int8]
+State:TypeAlias = npt.NDArray[np.int8]
 
 # Observation of the board
-Observation = np.ndarray[(6, 7), np.int8]
+Observation:TypeAlias = npt.NDArray[np.int8]
 
 # Column to place it in
-Action = np.int8
+Action:TypeAlias = np.int8
 
 # Reward for the agent
-Reward = np.float32
+Reward:TypeAlias = np.float32
 
 
-def initial_state() -> State:
-    return np.zeros((6, 7), dtype=np.int8)
+def initial_state(dims:tuple[int, int]) -> State:
+    x= np.zeros(dims, dtype=np.int8)
+    x[1] = 2
+    return np.zeros(dims, dtype=np.int8)
 
 
 def state_to_observation(s: State, actor: np.int8) -> Observation:
@@ -57,18 +60,20 @@ def winner(s:State) -> Optional[np.int8]:
 # return the reward for the actor
 def state_to_reward(s: State, actor: np.int8) -> Reward:
     if winner(s) == actor:
-        return 1.0
+        return np.float32(1.0)
     else:
-        return 0.0
+        return np.float32(0.0)
     
 class Env():
     def __init__(
         self,
+        dims:tuple[int,int]=(6,7)
     ):
-        self.state: State = initial_state()
+        self.dims = dims
+        self.state: State = initial_state(dims)
 
     def reset(self) -> None:
-        self.state = initial_state()
+        self.state = initial_state(self.dims)
 
     def observe(self, actor: np.int8) -> Observation:
         return state_to_observation(self.state, actor)
