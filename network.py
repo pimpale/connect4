@@ -4,21 +4,28 @@ import tensorflow as tf
 from tensor_annotations import axes
 import tensor_annotations.tensorflow as ttf
 import env
-from typing import NewType,TypeAlias
+import random
+import math
+from typing import NewType, TypeAlias
 
 LR = 0.0001
 BOARD_CONV_FILTERS = 8
 HIDDEN_LAYER_SIZE = 50
 GAMMA = 0.99
 
+# used for epsilon greedy selection
+EPS_START = 0.9
+EPS_END = 0.05
+EPS_DECAY = 200
+
 # Deep Q network
 
-Actions:TypeAlias = NewType('Actions', axes.Axis)
+ActionAxis: TypeAlias = NewType('Actions', axes.Axis)
+
 
 def build_network(dims: tuple[int, int]):
     # 2D Matrix of int8 inputs
     observation_input = keras.layers.Input(shape=dims, dtype=ttf.int8)
-
 
     # convolve the board so that the network can focus on key features
     convolved_board = keras.layers.Conv2D(
@@ -43,11 +50,11 @@ def build_network(dims: tuple[int, int]):
     q_policy_pred_output = keras.layers.Dense(
         shape=dims[1], activation='linear')(hidden_layer2_out)
 
-
     # this is the rewards predicted for each action at time t+1 in trajectory tau_j
     # predicted by target network
     # Q_target(s_{t+1}, a) for all valid a
-    q_target_nextstate_pred_input = keras.layers.Input(shape=dims[1], dtype=ttf.float32)
+    q_target_nextstate_pred_input = keras.layers.Input(
+        shape=dims[1], dtype=ttf.float32)
 
     # this is the actual reward we got during the transition to the next state
     actual_env_reward_input = keras.layers.Input(shape=(1,), dtype=ttf.float32)
@@ -59,7 +66,7 @@ def build_network(dims: tuple[int, int]):
         inputs=[
             observation_input,
             # used to calculate loss
-            q_target_nextstate_pred_input ,
+            q_target_nextstate_pred_input,
             actual_env_reward_input,
             selected_action_input
         ],
@@ -73,25 +80,27 @@ def build_network(dims: tuple[int, int]):
         # this is the rewards predicted for each action at time t in trajectory tau_j
         # predicted by policy network
         # Q_policy(s_t, a) for all valid a
-        q_policy_pred:ttf.Tensor2[ttf.float32, Actions, axes.Batch],
+        q_policy_pred: ttf.Tensor2[ttf.float32, ActionAxis, axes.Batch],
         # for each index $j$ in batch:
         # this is the rewards predicted for each action at time t+1 in trajectory tau_j
         # predicted by target network
         # Q_target(s_{t+1}, a) for all valid a
-        q_target_nextstate_pred:ttf.Tensor2[ttf.float32, Actions, axes.Batch],
+        q_target_nextstate_pred: ttf.Tensor2[ttf.float32, ActionAxis, axes.Batch],
         # for each index $j$ in batch:
         # this is the actual reward we got during the transition to the next state
-        actual_env_reward:ttf.Tensor1[ttf.float32, axes.Batch],
+        actual_env_reward: ttf.Tensor1[ttf.float32, axes.Batch],
         # for each index $j$ in batch:
         # this is the actual action we selected
-        selected_action:ttf.Tensor1[ttf.int8, axes.Batch],
+        selected_action: ttf.Tensor1[ttf.int8, axes.Batch],
     ):
         # get the Q value for s, a from the q_policy_pred
         # this is done by selecting the q value for the thing we already chose
-        q_s_a_t:ttf.Tensor1[ttf.float32, axes.Batch] = tf.gather(q_policy_pred, selected_action, 1)
+        q_s_a_t: ttf.Tensor1[ttf.float32, axes.Batch] = tf.gather(
+            q_policy_pred, selected_action, 1)
 
         # compute V(s_{t+1}) by taking the max reward predicted by the target network
-        v_s_t1:ttf.Tensor1[ttf.float32, axes.Batch] = tf.math.maximum(q_target_nextstate_pred, 1)
+        v_s_t1: ttf.Tensor1[ttf.float32, axes.Batch] = tf.math.maximum(
+            q_target_nextstate_pred, 1)
 
         # this is what should have been the Q value for s and a
         # it adds the real reward that we got at time t and a time discounted future reward
@@ -101,10 +110,10 @@ def build_network(dims: tuple[int, int]):
         return huberloss(q_s_a_t, expected_q_s_a_t)
 
     model.add_loss(dqn_loss(
-      q_policy_pred=q_policy_pred_output,
-      q_target_nextstate_pred=q_target_nextstate_pred_input,
-      actual_env_reward=actual_env_reward_input,
-      selected_action=selected_action_input
+        q_policy_pred=q_policy_pred_output,
+        q_target_nextstate_pred=q_target_nextstate_pred_input,
+        actual_env_reward=actual_env_reward_input,
+        selected_action=selected_action_input
     ))
 
     model.compile(optimizer=keras.optimizers.Adam(
@@ -124,41 +133,42 @@ class DeepQNetwork:
     def load(self, network_path: str):
         self.network.load_weights(network_path)
 
-    def select_action(self, observation:
+    def predict_action(self, steps_done: int, observation: env.Observation) -> env.Action:
+        # generate the q values for each action
+        observation_input = observation
 
-    def predict_batch(
-        self,
-        state_batch: list[env.Observation],
-    ):
+        # there are many inputs to the network that would be used
+        # if we needed to calculate loss, but we don't at this point
+        # therefore we will replace them with zeros
+        q_target_nextstate_pred_input = np.zeros(self.dims[1], dtype=np.float32)
+        actual_env_reward_input = np.array(0.0)
+        selected_action_input = np.array(0.0)
 
-        batch_len = len(state_batch)
-
-        # Convert state batch into correct format
-        board_state_batch = np.zeros(
-            (batch_len, self.dims[0], self.dims[1]), dtype=np.int8)
-
-        for (i, board_state) in enumerate(state_batch):
-            historical_network_throughput[i] = hnt
-            historical_chunk_download_time[i] = hcdt
-            available_video_bitrates[i] = avb
-            buffer_level[i] = bl
-            remaining_chunk_count[i] = rcc
-            last_chunk_bitrate[i] = lcb
-
-        p = self.actor(
+        q_values:ttf.Tensor1[ttf.float32, ActionAxis] = self.network(
             [
-                # Dummy
-                advantage,
-                oldpolicy_probs,
-                chosen_action,
-                entropy_weight,
-                # Real
-                historical_network_throughput,
-                historical_chunk_download_time,
-                available_video_bitrates,
-                buffer_level,
-                remaining_chunk_count,
-                last_chunk_bitrate,
+                np.array([observation_input]),
+                # these are not used for prediction
+                np.array([q_target_nextstate_pred_input]),
+                np.array([actual_env_reward_input]),
+                np.array([selected_action_input])
             ],
-        )
-        return p
+            training=False
+        )[0]
+
+
+        # alpha is the how far we are along the decay
+        alpha = math.exp(-steps_done / EPS_DECAY)
+        eps_threshold = EPS_END + (EPS_START - EPS_END) * alpha
+
+        # with probability epsilon we select a random action
+        sample = random.random()
+
+        if sample > eps_threshold:
+            return np.argmax(np.array(q_values))
+        else:
+            return np.int8(random.randrange(self.dims[1]))
+
+
+
+    
+
