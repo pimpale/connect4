@@ -35,16 +35,21 @@ class PPOAgent:
     # Private
     def __build_actor(self):
         # 2D Matrix of int8 inputs
-        feature_board = keras.layers.Input((self.board_height, self.board_width), dtype=ttf.int8)
+        feature_board = keras.layers.Input((self.board_height, self.board_width), dtype=np.int8)
+        # 2D Matrix of float32
+        float32_board = keras.layers.Lambda(lambda x: tf.cast(x, dtype=np.float32))(feature_board)
+        # convert into matrix with channels
+        board_with_channels = tf.keras.layers.Reshape(
+            target_shape=(self.board_height, self.board_width, 1),
+            input_shape=(self.board_height, self.board_width)
+        )(float32_board)
 
         # convolve the board so that the network can focus on key features
-        convolved_board = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), activation="relu")(feature_board )
+        convolved_board = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), activation="relu")(board_with_channels)
 
         # flatten the convolved board and concatenate it with other data
         # this will be used as input for the dense hidden layers
-        hidden_layer_in = keras.layers.Concatenate()(
-            keras.layers.Flatten()(convolved_board),
-        )
+        hidden_layer_in = keras.layers.Flatten()(convolved_board)
         # now 2 layers of hidden board size
         hidden_layer0_out = keras.layers.Dense(
             shape=HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer_in)
@@ -131,16 +136,21 @@ class PPOAgent:
     # The critic attempts to learn the advantage
     def __build_critic(self):
         # 2D Matrix of int8 inputs
-        feature_board = keras.layers.Input((self.board_height, self.board_width), dtype=ttf.int8)
+        feature_board = keras.layers.Input((self.board_height, self.board_width), dtype=np.int8)
+        # 2D Matrix of float32
+        float32_board = keras.layers.Lambda(lambda x: tf.cast(x, dtype=np.float32))(feature_board)
+        # convert into matrix with channels
+        board_with_channels = tf.keras.layers.Reshape(
+            target_shape=(self.board_height, self.board_width, 1),
+            input_shape=(self.board_height, self.board_width)
+        )(float32_board)
 
         # convolve the board so that the network can focus on key features
-        convolved_board = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), activation="relu")(feature_board)
+        convolved_board = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), activation="relu")(board_with_channels)
 
         # flatten the convolved board and concatenate it with other data
         # this will be used as input for the dense hidden layers
-        hidden_layer_in = keras.layers.Concatenate()(
-            keras.layers.Flatten()(convolved_board),
-        )
+        hidden_layer_in = keras.layers.Flatten()(convolved_board)
         # now 2 layers of hidden board size
         hidden_layer0_out = keras.layers.Dense(
             shape=HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer_in)

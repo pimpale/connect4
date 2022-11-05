@@ -51,8 +51,8 @@ def testing(epoch:int, nn_actor_model_path:str, nn_critic_model_path:str, log_fi
                     reward.append(float(parse[-1]))
                 except IndexError:
                     break
-        rewards_list.append(np.mean(reward[1:]))
-        entropies_list.append(np.mean(entropy[1:]))
+        rewards_list.append(float(np.mean(reward[1:])))
+        entropies_list.append(float(np.mean(entropy[1:])))
     rewards = np.array(rewards_list)
     rewards_min = np.min(rewards)
     rewards_5per = np.percentile(rewards, 5)
@@ -90,7 +90,7 @@ def central_agent(net_params_queues, exp_queues):
                 net_params_queues[i].put(actor_net_params)
 
             s_batch:list[env.Observation] = []
-            a_batch:list[npt.NDArray[np.float32]] = []
+            a_batch:list[env.Action] = []
             p_batch:list[npt.NDArray[np.float32]]  = []
             v_batch:list[float] = []
             for i in range(NUM_AGENTS):
@@ -119,15 +119,19 @@ def central_agent(net_params_queues, exp_queues):
 
 
 def agent(agent_id, net_params_queue, exp_queue):
-    e = env.Env(agent_id)
+    e = env.Env(DIMS)
     actor = network.PPOAgent(BOARD_XSIZE, BOARD_YSIZE)
 
     # initial synchronization of the network parameters from the coordinator
     actor_net_params = net_params_queue.get()
     actor.set_network_params(actor_net_params)
 
+    ACTOR_ID = np.int8(1)
+    OPPONENT_ID = np.int8(2)
+
     for epoch in range(TRAIN_EPOCH):
-        obs = e.reset()
+        e.reset()
+        obs = e.observe(ACTOR_ID)
         s_batch:list[env.Observation] = []
         a_batch:list[env.Action] = []
         p_batch:list[npt.NDArray[np.float32]]  = []
@@ -140,15 +144,25 @@ def agent(agent_id, net_params_queue, exp_queue):
 
             # gumbel noise
             noise = np.random.gumbel(size=len(action_prob))
-            chosen_vid_bitrate_idx = np.argmax(np.log(action_prob) + noise)
+            chosen_action: env.Action = np.argmax(np.log(action_prob) + noise)
 
-            obs, reward, done, info = e.step(chosen_vid_bitrate_idx)
+            reward, obs = e.step(chosen_action, ACTOR_ID)
+            done = e.game_over()
 
-            a_batch.append(action_vec)
+            a_batch.append(chosen_action)
             r_batch.append(reward)
             p_batch.append(action_prob)
+
             if done:
                 break
+            else:
+                # random opponent for now
+                opponent_action = np.random.randint(0, BOARD_XSIZE);
+                e.step(chosen_action, OPPONENT_ID)
+                done = e.game_over()
+                if done:
+                    break
+
         v_batch = actor.compute_advantage(s_batch, r_batch, done)
         exp_queue.put([s_batch, a_batch, p_batch, v_batch])
 

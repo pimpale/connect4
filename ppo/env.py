@@ -58,6 +58,11 @@ def winner(state:State) -> Optional[np.int8]:
     # finally return None if no winner found
     return None
 
+# returns if the board is completely filled
+def drawn(state:State) -> bool:
+    s = state[0]
+    return 0 in s
+
 # return the reward for the actor
 def state_to_reward(s: State, actor: np.int8) -> Reward:
     if winner(s) == actor:
@@ -80,7 +85,10 @@ class Env():
         return state_to_observation(self.state, actor)
 
     def game_over(self) -> bool:
-        return winner(self.state) is not None
+        if winner(self.state) is not None:
+            return True
+        else:
+            return drawn(self.state)
 
     def step(self, a: Action, actor: np.int8) -> tuple[Reward, Observation]:
         board = self.state[0]
