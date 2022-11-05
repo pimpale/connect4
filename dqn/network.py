@@ -57,10 +57,10 @@ def build_network(dims: tuple[int, int]):
         shape=dims[1], dtype=ttf.float32)
 
     # this is the actual reward we got during the transition to the next state
-    actual_env_reward_input = keras.layers.Input(shape=(1,), dtype=ttf.float32)
+    actual_env_reward_input = keras.layers.Input(shape=(1,), dtype=np.int8)
 
     # this is the actual action we selected
-    selected_action_input = keras.layers.Input(shape=(1,), dtype=ttf.float32)
+    selected_action_input = keras.layers.Input(shape=(1,), dtype=np.int8)
 
     model = keras.Model(
         inputs=[
@@ -133,7 +133,12 @@ class DeepQNetwork:
     def load(self, network_path: str):
         self.network.load_weights(network_path)
 
-    def predict_action(self, steps_done: int, observation: env.Observation) -> env.Action:
+    def predict_action(self,
+        # the step we're on right now (used for determining how random)
+        base_step: int,
+        # the observation of the board
+        observation: env.Observation 
+    ) -> env.Action:
         # generate the q values for each action
         observation_input = observation
 
@@ -157,7 +162,7 @@ class DeepQNetwork:
 
 
         # alpha is the how far we are along the decay
-        alpha = math.exp(-steps_done / EPS_DECAY)
+        alpha = math.exp(-base_step / EPS_DECAY)
         eps_threshold = EPS_END + (EPS_START - EPS_END) * alpha
 
         # with probability epsilon we select a random action
@@ -168,7 +173,87 @@ class DeepQNetwork:
         else:
             return np.int8(random.randrange(self.dims[1]))
 
+    def train(
+        self,
+        state_batch: list[env.Observation],
+        action_batch: list[env.Action],
+        old_prediction_batch: list[env.Action],
+        base_step:int
+    ):
+        batch_len = len(state_batch)
+        assert batch_len == len(action_batch)
+        assert batch_len == len(advantage_batch) 
+        assert batch_len == len(old_prediction_batch)
 
+        # Convert state batch into correct format
+        historical_network_throughput = np.zeros((len(state_batch), self.network_history_len)) 
+        historical_chunk_download_time = np.zeros((len(state_batch), self.network_history_len)) 
+        available_video_bitrates = np.zeros((len(state_batch), self.available_video_bitrates_count))
+        buffer_level = np.zeros((len(state_batch), 1))
+        remaining_chunk_count  = np.zeros((len(state_batch), 1))
+        last_chunk_bitrate  = np.zeros((len(state_batch), 1))
 
-    
+        # Create other PPO2 things (needed for training, but during inference we dont care)
+        advantage = np.reshape(advantage_batch, (batch_len, 1))
+        oldpolicy_probs= np.reshape(old_prediction_batch, (batch_len, self.available_video_bitrates_count))
+        chosen_action = np.reshape(action_batch, (batch_len, self.available_video_bitrates_count))
+
+        entropy_weight = np.full((batch_len, 1), self._entropy_weight);
+
+        for (i, (hnt, hcdt, avb, bl, rcc, lcb)) in enumerate(state_batch):
+            historical_network_throughput[i] = hnt
+            historical_chunk_download_time[i] = hcdt
+            available_video_bitrates[i] = avb
+            buffer_level[i] = bl
+            remaining_chunk_count[i] = rcc
+            last_chunk_bitrate[i] = lcb
+
+        class PrintLoss(keras.callbacks.Callback):
+            def __init__(self, base_step:int, name:str):
+                self.base_step = base_step
+                self.name = name
+            def on_epoch_end(self, epoch, logs):
+                tf.summary.scalar(self.name, logs['loss'], step=self.base_step+epoch)
+
+        # Train Actor
+        self.actor.fit(
+            [
+                # Required to compute loss
+                advantage,
+                oldpolicy_probs,
+                chosen_action,
+                entropy_weight,
+                # Real values
+                historical_network_throughput,
+                historical_chunk_download_time,
+                available_video_bitrates,
+                buffer_level,
+                remaining_chunk_count,
+                last_chunk_bitrate,
+            ],
+            epochs=PPO_TRAINING_EPO,
+            callbacks=[PrintLoss(base_step, 'loss_actor')]
+        )
+
+        # Train Critic
+        self.critic.fit(
+            [
+                historical_network_throughput,
+                historical_chunk_download_time,
+                available_video_bitrates,
+                buffer_level,
+                remaining_chunk_count,
+                last_chunk_bitrate,
+            ],
+            advantage,
+            epochs=PPO_TRAINING_EPO,
+            callbacks=[PrintLoss(base_step, 'critic_loss')]
+        )
+
+        p_batch = np.clip(oldpolicy_probs, ACTOR_PPO_LOSS_CLIPPING, 1. - ACTOR_PPO_LOSS_CLIPPING)
+        H = np.mean(np.sum(-np.log(p_batch) * p_batch, axis=1))
+        g = H - H_TARGET
+        self._entropy_weight -= LR * g * 0.1
+
+        return PPO_TRAINING_EPO
 

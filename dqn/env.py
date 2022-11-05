@@ -67,7 +67,7 @@ def state_to_reward(s: State, actor: np.int8) -> Reward:
 class Env():
     def __init__(
         self,
-        dims:tuple[int,int]=(6,7)
+        dims:tuple[int,int]
     ):
         self.dims = dims
         self.state: State = initial_state(dims)

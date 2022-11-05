@@ -6,19 +6,23 @@ import logging
 import tensorflow as tf
 import os
 import sys
-from env import Env, Observation
-import ppo as network
+import env
+import network
 
+
+DIMS=(6,7) # Board Dimensions
 NUM_AGENTS = 16
 TRAIN_SEQ_LEN = 1000  # take as a train batch
 TRAIN_EPOCH = 500000
 MODEL_SAVE_INTERVAL = 100
 RANDOM_SEED = 42
-SUMMARY_DIR = './ppo'
+SUMMARY_DIR = './summaries'
 MODEL_DIR = './models'
 TRAIN_TRACES = './train/'
 TEST_LOG_FOLDER = './test_results/'
 LOG_FILE = SUMMARY_DIR + '/log'
+
+
 
 # create result directory
 if not os.path.exists(SUMMARY_DIR):
@@ -37,17 +41,15 @@ def testing(epoch:int, nn_actor_model_path:str, nn_critic_model_path:str, log_fi
     entropies_list:list[float] = []
     test_log_files = os.listdir(TEST_LOG_FOLDER)
     for test_log_file in test_log_files:
-        reward, entropy = [], []
+        reward:list[float] = []
         with open(TEST_LOG_FOLDER + test_log_file, 'rb') as f:
             for line in f:
                 parse = line.split()
                 try:
-                    entropy.append(float(parse[-2]))
                     reward.append(float(parse[-1]))
                 except IndexError:
                     break
         rewards_list.append(np.mean(reward[1:]))
-        entropies_list.append(np.mean(entropy[1:]))
     rewards = np.array(rewards_list)
     rewards_min = np.min(rewards)
     rewards_5per = np.percentile(rewards, 5)
@@ -70,7 +72,7 @@ def central_agent(net_params_queues, exp_queues):
     assert len(exp_queues) == NUM_AGENTS
 
     # TODO: restore neural net parameters
-    actor = network.PPOAgent(NETWORK_HISTORY_LEN, AVAILABLE_VIDEO_BITRATES_COUNT)
+    actor = network.DeepQNetwork(NETWORK_HISTORY_LEN, AVAILABLE_VIDEO_BITRATES_COUNT)
 
     # Get Writer
     writer = tf.summary.create_file_writer(SUMMARY_DIR);
@@ -114,7 +116,7 @@ def central_agent(net_params_queues, exp_queues):
 
 
 def agent(agent_id, net_params_queue, exp_queue):
-    env = ABREnv(agent_id)
+    env = env.Env(agent_id)
     actor = network.PPOAgent(NETWORK_HISTORY_LEN, AVAILABLE_VIDEO_BITRATES_COUNT)
 
     # initial synchronization of the network parameters from the coordinator
@@ -139,7 +141,7 @@ def agent(agent_id, net_params_queue, exp_queue):
 
             obs, reward, done, info = env.step(chosen_vid_bitrate_idx)
 
-            action_vec = np.zeros(AVAILABLE_VIDEO_BITRATES_COUNT, dtype="float32")
+            action_vec = np.zeros(DIMS[1], dtype="float32")
             action_vec[chosen_vid_bitrate_idx] = 1
             a_batch.append(action_vec)
             r_batch.append(reward)
