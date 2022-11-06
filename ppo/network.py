@@ -85,8 +85,8 @@ class PPOAgent:
 
 
         def actor_ppo_loss(
-            newpolicy_probs: ttf.Tensor2[ttf.float32, ActionAxis, axes.Batch],
-            oldpolicy_probs: ttf.Tensor2[ttf.float32, ActionAxis, axes.Batch],
+            pi_new: ttf.Tensor2[ttf.float32, ActionAxis, axes.Batch],
+            pi_old: ttf.Tensor2[ttf.float32, ActionAxis, axes.Batch],
             action_chosen: ttf.Tensor2[ttf.float32, ActionAxis, axes.Batch],
             advantage: ttf.Tensor1[ttf.float32,axes.Batch],
             entropy_weight: ttf.Tensor1[ttf.float32, axes.Batch],
@@ -103,10 +103,10 @@ class PPOAgent:
                 return pi_new_prob / pi_old_prob
 
             # likelyhood ratio w 
-            w = calculate_likelyhood_ratio(newpolicy_probs, oldpolicy_probs, action_chosen)
+            w = calculate_likelyhood_ratio(pi_new, pi_old, action_chosen)
 
             # PPO2 Loss Clipping
-            ppo2loss = tf.minimum(
+            ppo2loss:ttf.Tensor1[ttf.float32, axes.Batch] = tf.minimum(
                 w*advantage,
                 tf.clip_by_value(w, 1-ACTOR_PPO_LOSS_CLIPPING, 1+ACTOR_PPO_LOSS_CLIPPING)*advantage
             )
@@ -115,14 +115,17 @@ class PPOAgent:
             # dual_loss = tf.where(tf.less(advantage, 0.), tf.maximum(ppo2loss, 3. * advantage), ppo2loss)
 
             # Calculate Entropy (how uncertain the prediction is)
-            entropy = -tf.reduce_sum(tf.multiply(newpolicy_probs, tf.math.log(newpolicy_probs)), axis=1, keepdims=True)
+            entropy:ttf.Tensor1[ttf.float32, axes.Batch] = -tf.reduce_sum(
+                pi_new * tf.math.log(pi_new),
+                axis=1
+            )
 
             # actor loss
-            return -tf.reduce_sum(ppo2loss) - entropy_weight * entropy
+            return -ppo2loss - entropy_weight * entropy
 
         model.add_loss(actor_ppo_loss(
-          newpolicy_probs=action_probs,
-          oldpolicy_probs=oldpolicy_probs,
+          pi_new=action_probs,
+          pi_old=oldpolicy_probs,
           action_chosen=action_chosen,
           advantage=advantage,
           entropy_weight=entropy_weight
