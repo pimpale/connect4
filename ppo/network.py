@@ -90,8 +90,9 @@ class PPOAgent:
             advantage: ttf.Tensor1[ttf.float32,axes.Batch],
             entropy_weight: ttf.Tensor1[ttf.float32, axes.Batch],
         ):
-            # Reward
-            def r(
+            # Calculates the likelyhood ratio
+            # This is used to penalize excessive differences between the original and new policies
+            def calculate_likelyhood_ratio(
                 pi_new:ttf.Tensor2[ttf.float32, ActionAxis, axes.Batch],
                 pi_old:ttf.Tensor2[ttf.float32, ActionAxis, axes.Batch],
                 acts:ttf.Tensor2[ttf.float32, ActionAxis, axes.Batch]
@@ -100,11 +101,14 @@ class PPOAgent:
                 pi_old_prob:ttf.Tensor1[ttf.float32, axes.Batch] = tf.reduce_sum(tf.multiply(pi_old, acts), axis=1)
                 return pi_new_prob / pi_old_prob
 
-            # reward 
-            rv = r(newpolicy_probs, oldpolicy_probs, action_chosen)
+            # likelyhood ratio w 
+            w = calculate_likelyhood_ratio(newpolicy_probs, oldpolicy_probs, action_chosen)
 
             # PPO2 Loss Clipping
-            ppo2loss = tf.minimum(rv, tf.clip_by_value(rv, 1-ACTOR_PPO_LOSS_CLIPPING, 1+ACTOR_PPO_LOSS_CLIPPING)) * advantage
+            ppo2loss = tf.minimum(
+                w*advantage,
+                tf.clip_by_value(w, 1-ACTOR_PPO_LOSS_CLIPPING, 1+ACTOR_PPO_LOSS_CLIPPING)*advantage
+            )
 
             # Dual Loss (Unsure what the advantage of this is???)
             dual_loss = tf.where(tf.less(advantage, 0.), tf.maximum(ppo2loss, 3. * advantage), ppo2loss)
@@ -182,10 +186,10 @@ class PPOAgent:
         self.actor.set_weights(weights[0])
         self.critic.set_weights(weights[1])
 
-    def predict(
+    def predict_batch(
         self,
         observation_batch: list[env.Observation],
-    ):
+    ) -> npt.NDArray[np.float32]:
         batch_len = len(observation_batch)
 
         # Convert state batch into correct format
@@ -211,6 +215,18 @@ class PPOAgent:
             ],
         )
         return p
+
+    def critic_batch(
+        self,
+        observation_batch: list[env.Observation]
+    ) -> npt.NDArray[np.float32]:
+        batch_len = len(observation_batch)
+        # Convert state batch into correct format
+        board_batched = np.zeros((batch_len, self.board_height, self.board_width))
+        for i, (o,) in enumerate(observation_batch):
+            board_batched[i] = o
+        
+        return self.critic([board_batched])
 
     def train(
         self,
@@ -263,7 +279,7 @@ class PPOAgent:
 
         # Train Critic
         self.critic.fit(
-            [board_batched],
+            board_batched,
             advantage_batched,
             epochs=PPO_TRAINING_EPO,
             callbacks=[PrintLoss(base_step, 'critic_loss')]
@@ -295,7 +311,7 @@ class PPOAgent:
             R_batch[-1] = 0  # terminal state
         else:
             # calculate the advantage at the end
-            v_batch = self.critic([state_batch[-1]])
+            v_batch = self.critic_batch([state_batch[-1]])
             R_batch[-1] = v_batch[0]
 
         # Use GAMMA to decay the advantage 

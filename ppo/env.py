@@ -15,6 +15,18 @@ Action:TypeAlias = np.int8
 Reward:TypeAlias = np.float32
 
 
+def print_obs(o:Observation):
+    for row in reversed(o[0]):
+        for x in row:
+            c = ' '
+            if x == 1:
+                c = '#'
+            elif x == 2:
+                c = 'O'
+            print(c, end=" ")
+        print()
+    print()
+
 def initial_state(dims:tuple[int, int]) -> State:
     return (np.zeros(dims, dtype=np.int8),)
 
@@ -59,7 +71,7 @@ def winner(state:State) -> Optional[np.int8]:
 # returns if the board is completely filled
 def drawn(state:State) -> bool:
     s = state[0]
-    return 0 in s
+    return 0 not in s
 
 # return the reward for the actor
 def state_to_reward(s: State, actor: np.int8) -> Reward:
@@ -100,7 +112,7 @@ class Env():
         return (r, o)
 
     def render(self) -> None:
-        for row in reversed(self.state):
+        for row in reversed(self.state[0]):
             for x in row:
                 print(x, end=" ")
             print()

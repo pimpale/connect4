@@ -134,23 +134,27 @@ def agent(agent_id, net_params_queue, exp_queue):
 
     for epoch in range(TRAIN_EPOCHS):
         e.reset()
-        obs = e.observe(ACTOR_ID)
         s_batch:list[env.Observation] = []
         a_batch:list[env.Action] = []
         p_batch:list[npt.NDArray[np.float32]]  = []
         r_batch:list[env.Reward] = []
-        actor_turn = False
+        actor_turn = True
         while not e.game_over():
             if actor_turn:
-                s_batch.append(obs)
-                action_prob = actor.predict([obs])[0]
+                obs = e.observe(ACTOR_ID)
+
+                env.print_obs(obs)
+
+                action_prob = actor.predict_batch([obs])[0]
 
                 # gumbel noise
                 noise = np.random.gumbel(size=len(action_prob))
                 chosen_action: env.Action = np.argmax(np.log(action_prob) + noise)
 
+                s_batch.append(obs)
+
                 reward, obs = e.step(chosen_action, ACTOR_ID)
-                done = e.game_over()
+
 
                 a_batch.append(chosen_action)
                 r_batch.append(reward)
@@ -159,7 +163,10 @@ def agent(agent_id, net_params_queue, exp_queue):
                 # random opponent for now
                 opponent_action = np.int8(np.random.randint(0, BOARD_XSIZE))
                 e.step(opponent_action, OPPONENT_ID)
+            # flip turn
+            actor_turn = not actor_turn
 
+        print("r_batch\n", r_batch)
         v_batch = actor.compute_advantage(s_batch, r_batch, False)
         exp_queue.put([s_batch, a_batch, p_batch, v_batch])
 
