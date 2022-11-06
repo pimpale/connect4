@@ -13,9 +13,8 @@ BOARD_XSIZE=7
 BOARD_YSIZE=6
 DIMS=(BOARD_YSIZE,BOARD_XSIZE)
 
-NUM_AGENTS = 16
-TRAIN_SEQ_LEN = 1000  # take as a train batch
-TRAIN_EPOCH = 500000
+NUM_AGENTS = 1
+TRAIN_EPOCHS = 500000
 MODEL_SAVE_INTERVAL = 100
 RANDOM_SEED = 42
 
@@ -24,6 +23,9 @@ MODEL_DIR = './models'
 TRAIN_TRACES = './train/'
 TEST_LOG_FOLDER = './test_results/'
 LOG_FILE = SUMMARY_DIR + '/log'
+
+# settings
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 
 # create result directory
 if not os.path.exists(SUMMARY_DIR):
@@ -83,7 +85,7 @@ def central_agent(net_params_queues, exp_queues):
     step=0
 
     with open(LOG_FILE + '_test.txt', 'w') as test_log_file, writer.as_default():
-        for epoch in range(TRAIN_EPOCH):
+        for epoch in range(TRAIN_EPOCHS):
             # synchronize the network parameters of work agent
             actor_net_params = actor.get_network_params()
             for i in range(NUM_AGENTS):
@@ -101,6 +103,7 @@ def central_agent(net_params_queues, exp_queues):
                 v_batch += g_
 
             # Train Actor
+            print(a_batch);
             steps_trained = actor.train(s_batch, a_batch, v_batch, p_batch, step)
             step += steps_trained
 
@@ -111,10 +114,10 @@ def central_agent(net_params_queues, exp_queues):
                 save_path = actor.save(actor_path, critic_path)
 
                 # Write to Log File
-                avg_reward, avg_entropy = testing(epoch, actor_path, critic_path, test_log_file)
-                tf.summary.scalar('avg_reward', avg_reward, step=step)
-                tf.summary.scalar('avg_entropy', avg_entropy, step=step)
-                tf.summary.scalar('entropy_weight', actor.get_entropy_weight(), step=step)
+                # avg_reward, avg_entropy = testing(epoch, actor_path, critic_path, test_log_file)
+                # tf.summary.scalar('avg_reward', avg_reward, step=step)
+                # tf.summary.scalar('avg_entropy', avg_entropy, step=step)
+                # tf.summary.scalar('entropy_weight', actor.get_entropy_weight(), step=step)
 
 
 
@@ -129,41 +132,35 @@ def agent(agent_id, net_params_queue, exp_queue):
     ACTOR_ID = np.int8(1)
     OPPONENT_ID = np.int8(2)
 
-    for epoch in range(TRAIN_EPOCH):
+    for epoch in range(TRAIN_EPOCHS):
         e.reset()
         obs = e.observe(ACTOR_ID)
         s_batch:list[env.Observation] = []
         a_batch:list[env.Action] = []
         p_batch:list[npt.NDArray[np.float32]]  = []
         r_batch:list[env.Reward] = []
-        done = True
-        for step in range(TRAIN_SEQ_LEN):
-            s_batch.append(obs)
+        actor_turn = False
+        while not e.game_over():
+            if actor_turn:
+                s_batch.append(obs)
+                action_prob = actor.predict([obs])[0]
 
-            action_prob = actor.predict([obs])[0]
+                # gumbel noise
+                noise = np.random.gumbel(size=len(action_prob))
+                chosen_action: env.Action = np.argmax(np.log(action_prob) + noise)
 
-            # gumbel noise
-            noise = np.random.gumbel(size=len(action_prob))
-            chosen_action: env.Action = np.argmax(np.log(action_prob) + noise)
+                reward, obs = e.step(chosen_action, ACTOR_ID)
+                done = e.game_over()
 
-            reward, obs = e.step(chosen_action, ACTOR_ID)
-            done = e.game_over()
-
-            a_batch.append(chosen_action)
-            r_batch.append(reward)
-            p_batch.append(action_prob)
-
-            if done:
-                break
+                a_batch.append(chosen_action)
+                r_batch.append(reward)
+                p_batch.append(action_prob)
             else:
                 # random opponent for now
-                opponent_action = np.random.randint(0, BOARD_XSIZE);
-                e.step(chosen_action, OPPONENT_ID)
-                done = e.game_over()
-                if done:
-                    break
+                opponent_action = np.int8(np.random.randint(0, BOARD_XSIZE))
+                e.step(opponent_action, OPPONENT_ID)
 
-        v_batch = actor.compute_advantage(s_batch, r_batch, done)
+        v_batch = actor.compute_advantage(s_batch, r_batch, False)
         exp_queue.put([s_batch, a_batch, p_batch, v_batch])
 
         actor_net_params = net_params_queue.get()

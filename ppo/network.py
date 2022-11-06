@@ -51,12 +51,9 @@ class PPOAgent:
         # this will be used as input for the dense hidden layers
         hidden_layer_in = keras.layers.Flatten()(convolved_board)
         # now 2 layers of hidden board size
-        hidden_layer0_out = keras.layers.Dense(
-            shape=HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer_in)
-        hidden_layer1_out = keras.layers.Dense(
-            shape=HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer0_out)
-        hidden_layer2_out = keras.layers.Dense(
-            shape=HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer1_out)
+        hidden_layer0_out = keras.layers.Dense(HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer_in)
+        hidden_layer1_out = keras.layers.Dense(HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer0_out)
+        hidden_layer2_out = keras.layers.Dense(HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer1_out)
 
         action_probs = keras.layers.Dense(self.board_width, activation='softmax')(hidden_layer2_out)
 
@@ -152,12 +149,9 @@ class PPOAgent:
         # this will be used as input for the dense hidden layers
         hidden_layer_in = keras.layers.Flatten()(convolved_board)
         # now 2 layers of hidden board size
-        hidden_layer0_out = keras.layers.Dense(
-            shape=HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer_in)
-        hidden_layer1_out = keras.layers.Dense(
-            shape=HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer0_out)
-        hidden_layer2_out = keras.layers.Dense(
-            shape=HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer1_out)
+        hidden_layer0_out = keras.layers.Dense(HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer_in)
+        hidden_layer1_out = keras.layers.Dense(HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer0_out)
+        hidden_layer2_out = keras.layers.Dense(HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer1_out)
 
         value = keras.layers.Dense(1, activation='linear')(hidden_layer2_out)
 
@@ -195,7 +189,7 @@ class PPOAgent:
         batch_len = len(observation_batch)
 
         # Convert state batch into correct format
-        board_batched = np.zeros((batch_len, self.board_height, self.board_height))
+        board_batched = np.zeros((batch_len, self.board_height, self.board_width))
         for i, (o,) in enumerate(observation_batch):
             board_batched[i] = o
 
@@ -232,14 +226,16 @@ class PPOAgent:
         assert batch_len == len(old_prediction_batch)
 
         # Convert state batch into correct format
-        board_batched = np.zeros((batch_len, self.board_height, self.board_height))
+        board_batched = np.zeros((batch_len, self.board_height, self.board_width))
         for i, (o,) in enumerate(observation_batch):
             board_batched[i] = o
 
         # Create other PPO2 things (needed for training, but during inference we dont care)
-        advantage_batched  = np.reshape(advantage_batch, (batch_len, 1))
+        advantage_batched = np.reshape(advantage_batch, (batch_len, 1))
         oldpolicy_probs_batched = np.reshape(old_prediction_batch, (batch_len, self.board_width))
-        chosen_action_batched  = np.reshape(action_batch, (batch_len, self.board_width))
+        # create 1 hot vector
+        chosen_action_batched = np.zeros((batch_len, self.board_width))
+        chosen_action_batched[np.arange(0, batch_len), action_batch] = 1
 
         entropy_weight = np.full((batch_len, 1), self._entropy_weight);
 

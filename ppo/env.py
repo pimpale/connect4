@@ -16,17 +16,15 @@ Reward:TypeAlias = np.float32
 
 
 def initial_state(dims:tuple[int, int]) -> State:
-    x= np.zeros(dims, dtype=np.int8)
-    x[1] = 2
     return (np.zeros(dims, dtype=np.int8),)
 
-
-def state_to_observation(s: State, actor: np.int8) -> Observation:
-    board = s[0].copy()
-    board[s == actor] = 1
-    board[s != actor] = 2
-    board[s == 0] = 0
-    return (board,)
+def state_to_observation(state: State, actor: np.int8) -> Observation:
+    s = state[0]
+    o = s.copy()
+    o[s == actor] = 1
+    o[s != actor] = 2
+    o[s == 0] = 0
+    return (o,)
 
 def winner(state:State) -> Optional[np.int8]:
     s = state[0]
@@ -75,11 +73,10 @@ class Env():
         self,
         dims:tuple[int,int]
     ):
-        self.dims = dims
         self.state: State = initial_state(dims)
 
     def reset(self) -> None:
-        self.state = initial_state(self.dims)
+        self.state = initial_state(self.state[0].shape)
 
     def observe(self, actor: np.int8) -> Observation:
         return state_to_observation(self.state, actor)
@@ -92,16 +89,10 @@ class Env():
 
     def step(self, a: Action, actor: np.int8) -> tuple[Reward, Observation]:
         board = self.state[0]
-        full: bool = True
-        for i in range(board[1]):
-            if self.state[i][a] == 0:
-                self.state[i][a] = actor
-                full = False
+        for row in board:
+            if row[a] == 0:
+                row[a] = actor
                 break
-
-        # if the column is full then this action is illegal
-        if full:
-            raise ValueError("column is full!")
 
         r = state_to_reward(self.state, actor)
         o = state_to_observation(self.state, actor)
