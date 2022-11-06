@@ -1,2 +1,0 @@
-model_checkpoint_path: "nn_model_ep_1100_critic.ckpt"
-all_model_checkpoint_paths: "nn_model_ep_1100_critic.ckpt"

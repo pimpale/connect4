@@ -14,7 +14,8 @@ ActionAxis: TypeAlias = NewType('Actions', axes.Axis)
 BOARD_CONV_FILTERS = 8
 HIDDEN_LAYER_SIZE = 50
 
-LR = 1e-5  # Lower lr stabilises training greatly
+ACTOR_LR = 1e-6  # Lower lr stabilises training greatly
+CRITIC_LR = 1e-7  # Lower lr stabilises training greatly
 GAMMA = 0.99
 
 # PPO2
@@ -111,13 +112,13 @@ class PPOAgent:
             )
 
             # Dual Loss (Unsure what the advantage of this is???)
-            dual_loss = tf.where(tf.less(advantage, 0.), tf.maximum(ppo2loss, 3. * advantage), ppo2loss)
+            # dual_loss = tf.where(tf.less(advantage, 0.), tf.maximum(ppo2loss, 3. * advantage), ppo2loss)
 
             # Calculate Entropy (how uncertain the prediction is)
             entropy = -tf.reduce_sum(tf.multiply(newpolicy_probs, tf.math.log(newpolicy_probs)), axis=1, keepdims=True)
 
             # actor loss
-            return -tf.reduce_sum(dual_loss) - entropy_weight * entropy
+            return -tf.reduce_sum(ppo2loss) - entropy_weight * entropy
 
         model.add_loss(actor_ppo_loss(
           newpolicy_probs=action_probs,
@@ -128,7 +129,7 @@ class PPOAgent:
         ))
 
         model.compile(
-            optimizer=keras.optimizers.Adam(learning_rate=LR),
+            optimizer=keras.optimizers.Adam(learning_rate=ACTOR_LR),
         )
 
         return model
@@ -164,7 +165,7 @@ class PPOAgent:
             outputs=[value]
         )
 
-        model.compile(optimizer=keras.optimizers.Adam(learning_rate=LR), loss='mse')
+        model.compile(optimizer=keras.optimizers.Adam(learning_rate=CRITIC_LR), loss='mse')
 
         return model
 
@@ -263,6 +264,7 @@ class PPOAgent:
                 tf.summary.scalar(self.name, logs['loss'], step=self.base_step+epoch)
 
         # Train Actor
+        print('fit actor')
         self.actor.fit(
             [
                 # Required to compute loss
@@ -278,6 +280,7 @@ class PPOAgent:
         )
 
         # Train Critic
+        print('fit critic')
         self.critic.fit(
             board_batched,
             advantage_batched,
@@ -288,7 +291,7 @@ class PPOAgent:
         p_batch = np.clip(oldpolicy_probs_batched, ACTOR_PPO_LOSS_CLIPPING, 1. - ACTOR_PPO_LOSS_CLIPPING)
         H = np.mean(np.sum(-np.log(p_batch) * p_batch, axis=1))
         g = H - H_TARGET
-        self._entropy_weight -= LR * float(g) * 0.1
+        self._entropy_weight -= ACTOR_LR * float(g) * 0.1
 
         return PPO_TRAINING_EPO
 
