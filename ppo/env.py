@@ -14,6 +14,12 @@ Action:TypeAlias = np.int8
 # Reward for the agent
 Reward:TypeAlias = np.float32
 
+# Value of an observation for an agent
+Value:TypeAlias = np.float32
+
+# Advantage of a particular action for an agent
+Advantage:TypeAlias = np.float32
+
 
 def print_obs(o:Observation):
     for row in reversed(o[0]):
@@ -110,10 +116,3 @@ class Env():
         o = state_to_observation(self.state, actor)
 
         return (r, o)
-
-    def render(self) -> None:
-        for row in reversed(self.state[0]):
-            for x in row:
-                print(x, end=" ")
-            print()
-        print()

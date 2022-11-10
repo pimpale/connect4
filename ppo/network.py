@@ -14,13 +14,13 @@ ActionAxis: TypeAlias = NewType('Actions', axes.Axis)
 BOARD_CONV_FILTERS = 8
 HIDDEN_LAYER_SIZE = 50
 
-ACTOR_LR = 1e-6  # Lower lr stabilises training greatly
-CRITIC_LR = 1e-7  # Lower lr stabilises training greatly
+ACTOR_LR = 1e-4  # Lower lr stabilises training greatly
+CRITIC_LR = 1e-4  # Lower lr stabilises training greatly
 GAMMA = 0.99
 
 # PPO2
 ACTOR_PPO_LOSS_CLIPPING=0.2
-PPO_TRAINING_EPO = 5
+PPO_TRAINING_EPO = 1
 # H stands for entropy here
 H_TARGET = 0.1
 
@@ -93,17 +93,12 @@ class PPOAgent:
         ):
             # Calculates the likelyhood ratio
             # This is used to penalize excessive differences between the original and new policies
-            def calculate_likelyhood_ratio(
-                pi_new:ttf.Tensor2[ttf.float32, ActionAxis, axes.Batch],
-                pi_old:ttf.Tensor2[ttf.float32, ActionAxis, axes.Batch],
-                acts:ttf.Tensor2[ttf.float32, ActionAxis, axes.Batch]
-            ) -> ttf.Tensor1[ttf.float32, axes.Batch]:
-                pi_new_prob:ttf.Tensor1[ttf.float32, axes.Batch] = tf.reduce_sum(tf.multiply(pi_new, acts), axis=1)
-                pi_old_prob:ttf.Tensor1[ttf.float32, axes.Batch] = tf.reduce_sum(tf.multiply(pi_old, acts), axis=1)
-                return pi_new_prob / pi_old_prob
-
+            pi_new_a_prob:ttf.Tensor1[ttf.float32, axes.Batch] = \
+                tf.reduce_sum(tf.multiply(pi_new, action_chosen), axis=1)
+            pi_old_a_prob:ttf.Tensor1[ttf.float32, axes.Batch] = \
+                tf.reduce_sum(tf.multiply(pi_old, action_chosen), axis=1)
             # likelyhood ratio w 
-            w = calculate_likelyhood_ratio(pi_new, pi_old, action_chosen)
+            w = pi_new_a_prob / pi_old_a_prob
 
             # PPO2 Loss Clipping
             ppo2loss:ttf.Tensor1[ttf.float32, axes.Batch] = tf.minimum(
@@ -115,13 +110,14 @@ class PPOAgent:
             # dual_loss = tf.where(tf.less(advantage, 0.), tf.maximum(ppo2loss, 3. * advantage), ppo2loss)
 
             # Calculate Entropy (how uncertain the prediction is)
+            # This is defined as sum over a: -pi(a)*log(pi(a))
             entropy:ttf.Tensor1[ttf.float32, axes.Batch] = -tf.reduce_sum(
                 pi_new * tf.math.log(pi_new),
                 axis=1
             )
 
             # actor loss
-            return -ppo2loss - entropy_weight * entropy
+            return -ppo2loss #- entropy_weight * entropy
 
         model.add_loss(actor_ppo_loss(
           pi_new=action_probs,
@@ -236,13 +232,15 @@ class PPOAgent:
         self,
         observation_batch: list[env.Observation],
         action_batch: list[env.Action],
-        advantage_batch:list[float],
+        advantage_batch:list[env.Advantage],
+        value_batch:list[env.Value],
         old_prediction_batch: list[npt.NDArray[np.float32]],
         base_step:int
     ):
         batch_len = len(observation_batch)
         assert batch_len == len(action_batch)
         assert batch_len == len(advantage_batch) 
+        assert batch_len == len(value_batch)
         assert batch_len == len(old_prediction_batch)
 
         # Convert state batch into correct format
@@ -252,6 +250,7 @@ class PPOAgent:
 
         # Create other PPO2 things (needed for training, but during inference we dont care)
         advantage_batched = np.reshape(advantage_batch, (batch_len, 1))
+        value_batched = np.reshape(value_batch, (batch_len, 1))
         oldpolicy_probs_batched = np.reshape(old_prediction_batch, (batch_len, self.board_width))
         # create 1 hot vector
         chosen_action_batched = np.zeros((batch_len, self.board_width))
@@ -286,7 +285,7 @@ class PPOAgent:
         print('fit critic')
         self.critic.fit(
             board_batched,
-            advantage_batched,
+            value_batched,
             epochs=PPO_TRAINING_EPO,
             callbacks=[PrintLoss(base_step, 'critic_loss')]
         )
@@ -306,22 +305,33 @@ class PPOAgent:
         self,
         state_batch: list[env.Observation],
         reward_batch: list[env.Reward],
-        terminal: bool
-    ) -> list[float]:
+    ) -> list[env.Advantage]:
         assert len(state_batch) == len(reward_batch)
 
         batch_len = len(state_batch)
         R_batch = np.zeros(len(reward_batch))
 
-        if terminal:
-            R_batch[-1] = 0  # terminal state
-        else:
-            # calculate the advantage at the end
-            v_batch = self.critic_batch([state_batch[-1]])
-            R_batch[-1] = v_batch[0]
+        # calculate the value of the state at the end
+        value = self.critic_batch([state_batch[-1]])[0]
+
+        R_batch[-1] = value + reward_batch[-1]
 
         # Use GAMMA to decay the advantage 
         for t in reversed(range(batch_len- 1)):
             R_batch[t] = reward_batch[t] + GAMMA * R_batch[t + 1]
 
         return list(R_batch)
+
+    # computes what the critic network should have predicted
+    def compute_value(
+        self,
+        reward_batch: list[env.Reward],
+    ) -> list[env.Value]:
+        batch_len = len(reward_batch)
+        v_batch = np.zeros(len(reward_batch))
+
+        # Use GAMMA to decay the advantage 
+        for t in reversed(range(batch_len- 1)):
+            v_batch[t] = reward_batch[t] + GAMMA * v_batch[t + 1]
+
+        return list(v_batch)

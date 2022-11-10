@@ -94,17 +94,19 @@ def central_agent(net_params_queues, exp_queues):
             s_batch:list[env.Observation] = []
             a_batch:list[env.Action] = []
             p_batch:list[npt.NDArray[np.float32]]  = []
-            v_batch:list[float] = []
+            d_batch:list[env.Advantage] = []
+            v_batch:list[env.Value] = []
             for i in range(NUM_AGENTS):
-                s_, a_, p_, g_ = exp_queues[i].get()
+                s_, a_, p_, d_, v_  = exp_queues[i].get()
                 s_batch += s_
                 a_batch += a_
                 p_batch += p_
-                v_batch += g_
+                d_batch += d_
+                v_batch += v_
 
             # Train Actor
             print(a_batch);
-            steps_trained = actor.train(s_batch, a_batch, v_batch, p_batch, step)
+            steps_trained = actor.train(s_batch, a_batch, d_batch, v_batch, p_batch, step)
             step += steps_trained
 
             if epoch % MODEL_SAVE_INTERVAL == 0:
@@ -143,9 +145,8 @@ def agent(agent_id, net_params_queue, exp_queue):
             if actor_turn:
                 obs = e.observe(ACTOR_ID)
 
-                env.print_obs(obs)
-
                 action_prob = actor.predict_batch([obs])[0]
+                print(action_prob);
 
                 # gumbel noise
                 noise = np.random.gumbel(size=len(action_prob))
@@ -166,9 +167,9 @@ def agent(agent_id, net_params_queue, exp_queue):
             # flip turn
             actor_turn = not actor_turn
 
-        print("r_batch\n", r_batch)
-        v_batch = actor.compute_advantage(s_batch, r_batch, False)
-        exp_queue.put([s_batch, a_batch, p_batch, v_batch])
+        v_batch = actor.compute_value(r_batch)
+        d_batch = actor.compute_advantage(s_batch, r_batch)
+        exp_queue.put([s_batch, a_batch, p_batch, d_batch, v_batch])
 
         actor_net_params = net_params_queue.get()
         actor.set_network_params(actor_net_params)
