@@ -13,9 +13,10 @@ BOARD_XSIZE=7
 BOARD_YSIZE=6
 DIMS=(BOARD_YSIZE,BOARD_XSIZE)
 
-NUM_AGENTS = 1
+BATCH_SIZE = 10
+NUM_AGENTS = 2
 TRAIN_EPOCHS = 500000
-MODEL_SAVE_INTERVAL = 100
+MODEL_SAVE_INTERVAL = 10
 RANDOM_SEED = 42
 
 SUMMARY_DIR = './summary'
@@ -84,30 +85,37 @@ def central_agent(net_params_queues, exp_queues):
 
     step=0
 
+    summary_reward_buf:list[float] = []
+    summary_entropy_buf:list[float] = []
+
     with open(LOG_FILE + '_test.txt', 'w') as test_log_file, writer.as_default():
         for epoch in range(TRAIN_EPOCHS):
             # synchronize the network parameters of work agent
             actor_net_params = actor.get_network_params()
-            for i in range(NUM_AGENTS):
-                net_params_queues[i].put(actor_net_params)
-
             s_batch:list[env.Observation] = []
             a_batch:list[env.Action] = []
             p_batch:list[npt.NDArray[np.float32]]  = []
             d_batch:list[env.Advantage] = []
             v_batch:list[env.Value] = []
-            for i in range(NUM_AGENTS):
-                s_, a_, p_, d_, v_  = exp_queues[i].get()
-                s_batch += s_
-                a_batch += a_
-                p_batch += p_
-                d_batch += d_
-                v_batch += v_
+            for _ in range(BATCH_SIZE//NUM_AGENTS):
+                for i in range(NUM_AGENTS):
+                    net_params_queues[i].put(actor_net_params)
 
-            # Train Actor
-            print(a_batch);
+                for i in range(NUM_AGENTS):
+                    s_, a_, p_, d_, v_  = exp_queues[i].get()
+                    s_batch += s_
+                    a_batch += a_
+                    p_batch += p_
+                    d_batch += d_
+                    v_batch += v_
+
+                    summary_reward_buf.append(float(v_[-1]))
+                    summary_entropy_buf.append(actor.get_entropy_weight())
+
             steps_trained = actor.train(s_batch, a_batch, d_batch, v_batch, p_batch, step)
+
             step += steps_trained
+
 
             if epoch % MODEL_SAVE_INTERVAL == 0:
                 # Save the neural net parameters to disk.
@@ -116,10 +124,15 @@ def central_agent(net_params_queues, exp_queues):
                 save_path = actor.save(actor_path, critic_path)
 
                 # Write to Log File
-                # avg_reward, avg_entropy = testing(epoch, actor_path, critic_path, test_log_file)
-                # tf.summary.scalar('avg_reward', avg_reward, step=step)
-                # tf.summary.scalar('avg_entropy', avg_entropy, step=step)
-                # tf.summary.scalar('entropy_weight', actor.get_entropy_weight(), step=step)
+                #avg_reward, avg_entropy = testing(epoch, actor_path, critic_path, test_log_file)
+                avg_reward = sum(summary_reward_buf)/len(summary_reward_buf)
+                avg_entropy = sum(summary_entropy_buf)/len(summary_entropy_buf)
+                tf.summary.scalar('avg_reward', avg_reward, step=step)
+                tf.summary.scalar('avg_entropy', avg_entropy, step=step)
+
+                # clear
+                summary_reward_buf = []
+                summary_entropy_buf = []
 
 
 
@@ -146,7 +159,8 @@ def agent(agent_id, net_params_queue, exp_queue):
                 obs = e.observe(ACTOR_ID)
 
                 action_prob = actor.predict_batch([obs])[0]
-                print(action_prob);
+                print(action_prob)
+                print(env.print_obs(obs))
 
                 # gumbel noise
                 noise = np.random.gumbel(size=len(action_prob))
@@ -155,6 +169,7 @@ def agent(agent_id, net_params_queue, exp_queue):
                 s_batch.append(obs)
 
                 reward, obs = e.step(chosen_action, ACTOR_ID)
+                print(env.print_obs(obs))
 
 
                 a_batch.append(chosen_action)

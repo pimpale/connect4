@@ -14,13 +14,13 @@ ActionAxis: TypeAlias = NewType('Actions', axes.Axis)
 BOARD_CONV_FILTERS = 8
 HIDDEN_LAYER_SIZE = 50
 
-ACTOR_LR = 1e-4  # Lower lr stabilises training greatly
-CRITIC_LR = 1e-4  # Lower lr stabilises training greatly
+ACTOR_LR = 1e-5  # Lower lr stabilises training greatly
+CRITIC_LR = 1e-5  # Lower lr stabilises training greatly
 GAMMA = 0.99
 
 # PPO2
 ACTOR_PPO_LOSS_CLIPPING=0.2
-PPO_TRAINING_EPO = 1
+PPO_TRAINING_EPO = 5
 # H stands for entropy here
 H_TARGET = 0.1
 
@@ -28,13 +28,13 @@ class PPOAgent:
     def __init__(self, width:int, height:int):
         self.board_width = width
         self.board_height = height
-        self.actor = self.__build_actor()
-        self.critic = self.__build_critic()
+        self._actor = self._build_actor()
+        self._critic = self._build_critic()
         self._entropy_weight:float = np.log(width)
 
 
     # Private
-    def __build_actor(self):
+    def _build_actor(self):
         # 2D Matrix of int8 inputs
         feature_board = keras.layers.Input((self.board_height, self.board_width), dtype=np.int8)
         # 2D Matrix of float32
@@ -117,7 +117,7 @@ class PPOAgent:
             )
 
             # actor loss
-            return -ppo2loss #- entropy_weight * entropy
+            return -ppo2loss - entropy_weight * entropy
 
         model.add_loss(actor_ppo_loss(
           pi_new=action_probs,
@@ -135,7 +135,7 @@ class PPOAgent:
 
     # Private
     # The critic attempts to learn the advantage
-    def __build_critic(self):
+    def _build_critic(self):
         # 2D Matrix of int8 inputs
         feature_board = keras.layers.Input((self.board_height, self.board_width), dtype=np.int8)
         # 2D Matrix of float32
@@ -169,22 +169,22 @@ class PPOAgent:
         return model
 
     def save(self, actor_path:str, critic_path:str):
-        self.actor.save_weights(actor_path)
-        self.critic.save_weights(critic_path)
+        self._actor.save_weights(actor_path)
+        self._critic.save_weights(critic_path)
 
     def load(self, actor_path:str, critic_path:str):
-        self.actor.load_weights(actor_path)
-        self.critic.load_weights(critic_path)
+        self._actor.load_weights(actor_path)
+        self._critic.load_weights(critic_path)
 
     def get_network_params(self):
         return [
-          self.actor.get_weights(),
-          self.critic.get_weights(),
+          self._actor.get_weights(),
+          self._critic.get_weights(),
         ]
 
     def set_network_params(self, weights):
-        self.actor.set_weights(weights[0])
-        self.critic.set_weights(weights[1])
+        self._actor.set_weights(weights[0])
+        self._critic.set_weights(weights[1])
 
     def predict_batch(
         self,
@@ -203,7 +203,7 @@ class PPOAgent:
         chosen_action_batched = np.zeros((batch_len, self.board_width))
         entropy_weight_batched = np.zeros((batch_len, 1))
 
-        p = self.actor(
+        p = self._actor(
             [
                 # Dummy
                 advantage_batched,
@@ -226,7 +226,7 @@ class PPOAgent:
         for i, (o,) in enumerate(observation_batch):
             board_batched[i] = o
         
-        return self.critic([board_batched])
+        return self._critic([board_batched])
 
     def train(
         self,
@@ -267,7 +267,7 @@ class PPOAgent:
 
         # Train Actor
         print('fit actor')
-        self.actor.fit(
+        self._actor.fit(
             [
                 # Required to compute loss
                 advantage_batched,
@@ -283,7 +283,7 @@ class PPOAgent:
 
         # Train Critic
         print('fit critic')
-        self.critic.fit(
+        self._critic.fit(
             board_batched,
             value_batched,
             epochs=PPO_TRAINING_EPO,
@@ -329,6 +329,8 @@ class PPOAgent:
     ) -> list[env.Value]:
         batch_len = len(reward_batch)
         v_batch = np.zeros(len(reward_batch))
+
+        v_batch[-1] = reward_batch[-1]
 
         # Use GAMMA to decay the advantage 
         for t in reversed(range(batch_len- 1)):
