@@ -1,4 +1,3 @@
-import math
 import numpy as np
 import numpy.typing as npt
 import tensorflow as tf
@@ -6,17 +5,17 @@ from tensor_annotations import axes
 import tensor_annotations.tensorflow as ttf
 from tensorflow import keras
 import env
-from typing import NewType, TypeAlias
+from typing import NewType, TypeAlias, Literal
 
 ActionAxis: TypeAlias = NewType('Actions', axes.Axis)
 
 # Hyperparameters
-BOARD_CONV_FILTERS = 8
-HIDDEN_LAYER_SIZE = 50
+BOARD_CONV_FILTERS = 32
+HIDDEN_LAYER_SIZE = 32
 
-ACTOR_LR = 1e-5  # Lower lr stabilises training greatly
+ACTOR_LR = 1e-4  # Lower lr stabilises training greatly
 CRITIC_LR = 1e-5  # Lower lr stabilises training greatly
-GAMMA = 0.99
+GAMMA = 0.8
 
 # PPO2
 ACTOR_PPO_LOSS_CLIPPING=0.2
@@ -31,7 +30,10 @@ class PPOAgent:
         self._actor = self._build_actor()
         self._critic = self._build_critic()
         self._entropy_weight:float = np.log(width)
+        self.verbosity:Literal[0, 1, 2] = 0
 
+    def set_verbosity(self, verbosity:Literal[0,1,2]):
+        self.verbosity = verbosity
 
     # Private
     def _build_actor(self):
@@ -45,18 +47,20 @@ class PPOAgent:
             input_shape=(self.board_height, self.board_width)
         )(float32_board)
 
+        
         # convolve the board so that the network can focus on key features
-        convolved_board = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), activation="relu")(board_with_channels)
+        convolved_board0 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), padding="same", activation="relu")(board_with_channels)
+        convolved_board1 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), padding="same", activation="relu")(convolved_board0)
+        convolved_board2 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), activation="relu")(convolved_board1)
 
         # flatten the convolved board and concatenate it with other data
         # this will be used as input for the dense hidden layers
-        hidden_layer_in = keras.layers.Flatten()(convolved_board)
+        hidden_layer_in = keras.layers.Flatten()(convolved_board2)
         # now 2 layers of hidden board size
         hidden_layer0_out = keras.layers.Dense(HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer_in)
         hidden_layer1_out = keras.layers.Dense(HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer0_out)
-        hidden_layer2_out = keras.layers.Dense(HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer1_out)
 
-        action_probs = keras.layers.Dense(self.board_width, activation='softmax')(hidden_layer2_out)
+        action_probs = keras.layers.Dense(self.board_width, activation='softmax')(hidden_layer1_out)
 
         # oldpolicy probs is the vector of predictions made by the old actor model
         oldpolicy_probs = keras.layers.Input(shape=self.board_width)
@@ -147,17 +151,18 @@ class PPOAgent:
         )(float32_board)
 
         # convolve the board so that the network can focus on key features
-        convolved_board = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), activation="relu")(board_with_channels)
+        convolved_board0 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), padding="same", activation="relu")(board_with_channels)
+        convolved_board1 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), padding="same", activation="relu")(convolved_board0)
+        convolved_board2 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), activation="relu")(convolved_board1)
 
         # flatten the convolved board and concatenate it with other data
         # this will be used as input for the dense hidden layers
-        hidden_layer_in = keras.layers.Flatten()(convolved_board)
+        hidden_layer_in = keras.layers.Flatten()(convolved_board2)
         # now 2 layers of hidden board size
         hidden_layer0_out = keras.layers.Dense(HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer_in)
         hidden_layer1_out = keras.layers.Dense(HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer0_out)
-        hidden_layer2_out = keras.layers.Dense(HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer1_out)
 
-        value = keras.layers.Dense(1, activation='linear')(hidden_layer2_out)
+        value = keras.layers.Dense(1, activation='linear')(hidden_layer1_out)
 
         model = keras.Model(
             inputs=[feature_board],
@@ -194,8 +199,8 @@ class PPOAgent:
 
         # Convert state batch into correct format
         board_batched = np.zeros((batch_len, self.board_height, self.board_width))
-        for i, (o,) in enumerate(observation_batch):
-            board_batched[i] = o
+        for i, o in enumerate(observation_batch):
+            board_batched[i] = o.board
 
         # Create other PPO2 things (needed for training, but during inference we dont care)
         advantage_batched = np.zeros((batch_len, 1))
@@ -223,8 +228,8 @@ class PPOAgent:
         batch_len = len(observation_batch)
         # Convert state batch into correct format
         board_batched = np.zeros((batch_len, self.board_height, self.board_width))
-        for i, (o,) in enumerate(observation_batch):
-            board_batched[i] = o
+        for i, o in enumerate(observation_batch):
+            board_batched[i] = o.board
         
         return self._critic([board_batched])
 
@@ -245,8 +250,8 @@ class PPOAgent:
 
         # Convert state batch into correct format
         board_batched = np.zeros((batch_len, self.board_height, self.board_width))
-        for i, (o,) in enumerate(observation_batch):
-            board_batched[i] = o
+        for i, o in enumerate(observation_batch):
+            board_batched[i] = o.board
 
         # Create other PPO2 things (needed for training, but during inference we dont care)
         advantage_batched = np.reshape(advantage_batch, (batch_len, 1))
@@ -266,7 +271,6 @@ class PPOAgent:
                 tf.summary.scalar(self.name, logs['loss'], step=self.base_step+epoch)
 
         # Train Actor
-        print('fit actor')
         self._actor.fit(
             [
                 # Required to compute loss
@@ -278,15 +282,16 @@ class PPOAgent:
                 board_batched,
             ],
             epochs=PPO_TRAINING_EPO,
+            verbose=self.verbosity,
             callbacks=[PrintLoss(base_step, 'actor_loss')]
         )
 
         # Train Critic
-        print('fit critic')
         self._critic.fit(
             board_batched,
             value_batched,
             epochs=PPO_TRAINING_EPO,
+            verbose=self.verbosity,
             callbacks=[PrintLoss(base_step, 'critic_loss')]
         )
 

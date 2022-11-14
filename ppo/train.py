@@ -88,19 +88,19 @@ def central_agent(net_params_queues, exp_queues):
     summary_reward_buf:list[float] = []
     summary_entropy_buf:list[float] = []
 
-    with open(LOG_FILE + '_test.txt', 'w') as test_log_file, writer.as_default():
+    with writer.as_default():
         for epoch in range(TRAIN_EPOCHS):
             # synchronize the network parameters of work agent
             actor_net_params = actor.get_network_params()
+            for i in range(NUM_AGENTS):
+                net_params_queues[i].put(actor_net_params)
+            
             s_batch:list[env.Observation] = []
             a_batch:list[env.Action] = []
             p_batch:list[npt.NDArray[np.float32]]  = []
             d_batch:list[env.Advantage] = []
             v_batch:list[env.Value] = []
             for _ in range(BATCH_SIZE//NUM_AGENTS):
-                for i in range(NUM_AGENTS):
-                    net_params_queues[i].put(actor_net_params)
-
                 for i in range(NUM_AGENTS):
                     s_, a_, p_, d_, v_  = exp_queues[i].get()
                     s_batch += s_
