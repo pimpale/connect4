@@ -47,15 +47,9 @@ class PPOAgent:
             input_shape=(self.board_height, self.board_width)
         )(float32_board)
 
-        
-        # convolve the board so that the network can focus on key features
-        convolved_board0 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), padding="same", activation="relu")(board_with_channels)
-        convolved_board1 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), padding="same", activation="relu")(convolved_board0)
-        convolved_board2 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), activation="relu")(convolved_board1)
-
         # flatten the convolved board and concatenate it with other data
         # this will be used as input for the dense hidden layers
-        hidden_layer_in = keras.layers.Flatten()(convolved_board2)
+        hidden_layer_in = keras.layers.Flatten()(board_with_channels)
         # now 2 layers of hidden board size
         hidden_layer0_out = keras.layers.Dense(HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer_in)
         hidden_layer1_out = keras.layers.Dense(HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer0_out)
@@ -151,13 +145,13 @@ class PPOAgent:
         )(float32_board)
 
         # convolve the board so that the network can focus on key features
-        convolved_board0 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), padding="same", activation="relu")(board_with_channels)
-        convolved_board1 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), padding="same", activation="relu")(convolved_board0)
-        convolved_board2 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), activation="relu")(convolved_board1)
+        # convolved_board0 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), padding="same", activation="relu")(board_with_channels)
+        # convolved_board1 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), padding="same", activation="relu")(convolved_board0)
+        # convolved_board2 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), activation="relu")(convolved_board1)
 
         # flatten the convolved board and concatenate it with other data
         # this will be used as input for the dense hidden layers
-        hidden_layer_in = keras.layers.Flatten()(convolved_board2)
+        hidden_layer_in = keras.layers.Flatten()(board_with_channels)
         # now 2 layers of hidden board size
         hidden_layer0_out = keras.layers.Dense(HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer_in)
         hidden_layer1_out = keras.layers.Dense(HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer0_out)

@@ -27,19 +27,19 @@ Advantage:TypeAlias = np.float32
 
 
 def print_obs(o:Observation):
-    for row in reversed(o.board):
+    for row in o.board:
         for x in row:
             c = ' '
             if x == 1:
-                c = '#'
+                c = 'X'
             elif x == 2:
                 c = 'O'
             print(c, end=" ")
         print()
     print()
 
-def initial_state(dims:tuple[int, int]) -> State:
-    return State(np.zeros(dims, dtype=np.int8))
+def initial_state() -> State:
+    return State(np.zeros((3, 3), dtype=np.int8))
 
 def state_to_observation(state: State, actor: np.int8) -> Observation:
     s = state.board
@@ -54,27 +54,27 @@ def winner(state:State) -> Optional[np.int8]:
     ysize, xsize = s.shape
     # check horizontal
     for y in range(0, ysize):
-        for x in range(0, xsize-3):
+        for x in range(0, xsize-2):
             actor = s[y][x]
-            if actor != 0 and s[y][x+1] == actor and s[y][x+2] == actor and s[y][x+3] == actor:
+            if actor != 0 and s[y][x+1] == actor and s[y][x+2] == actor:
                 return actor
     # check vertical
     for x in range(0, xsize):
-        for y in range(0, ysize-3):
+        for y in range(0, ysize-2):
             actor = s[y][x]
-            if actor != 0 and s[y+1][x] == actor and s[y+2][x] == actor and s[y+3][x] == actor:
+            if actor != 0 and s[y+1][x] == actor and s[y+2][x] == actor:
                 return actor
     # check diagonals 1 way
-    for y in range(0, ysize-3):
-        for x in range(0, xsize-3):
+    for y in range(0, ysize-2):
+        for x in range(0, xsize-2):
             actor = s[y][x]
-            if actor != 0 and s[y+1][x+1] == actor and s[y+2][x+2] == actor and s[y+3][x+3] == actor:
+            if actor != 0 and s[y+1][x+1] == actor and s[y+2][x+2] == actor:
                 return actor
     # check diagonals other way
-    for y in range(0, ysize-3):
+    for y in range(0, ysize-2):
         for x in range(3, xsize):
             actor = s[y][x]
-            if actor != 0 and s[y+1][x-1] == actor and s[y+2][x-2] == actor and s[y+3][x-3] == actor:
+            if actor != 0 and s[y+1][x-1] == actor and s[y+2][x-2] == actor:
                 return actor
     # finally return None if no winner found
     return None
@@ -96,12 +96,11 @@ def state_to_reward(s: State, actor: np.int8) -> Reward:
 class Env():
     def __init__(
         self,
-        dims:tuple[int,int]
     ):
-        self.state: State = initial_state(dims)
+        self.state: State = initial_state()
 
     def reset(self) -> None:
-        self.state = initial_state(self.state.board.shape)
+        self.state = initial_state()
 
     def observe(self, actor: np.int8) -> Observation:
         return state_to_observation(self.state, actor)
@@ -112,11 +111,13 @@ class Env():
         else:
             return drawn(self.state)
 
+    def legal_mask(self, actor:np.int8) -> npt.NDArray[Action]:
+        return (self.state.board == 0).reshape(-1)
+            
+
+
     def step(self, a: Action, actor: np.int8) -> tuple[Reward, Observation]:
-        for row in self.state.board:
-            if row[a] == 0:
-                row[a] = actor
-                break
+        self.state.board.reshape(-1)[a] = actor
 
         r = state_to_reward(self.state, actor)
         o = state_to_observation(self.state, actor)
