@@ -24,12 +24,11 @@ PPO_TRAINING_EPO = 5
 H_TARGET = 0.1
 
 class PPOAgent:
-    def __init__(self, width:int, height:int):
-        self.board_width = width
-        self.board_height = height
+    def __init__(self):
+        self.board_size = 9
         self._actor = self._build_actor()
         self._critic = self._build_critic()
-        self._entropy_weight:float = np.log(width)
+        self._entropy_weight:float = np.log(self.board_size)
         self.verbosity:Literal[0, 1, 2] = 0
 
     def set_verbosity(self, verbosity:Literal[0,1,2]):
@@ -38,28 +37,23 @@ class PPOAgent:
     # Private
     def _build_actor(self):
         # 2D Matrix of int8 inputs
-        feature_board = keras.layers.Input((self.board_height, self.board_width), dtype=np.int8)
+        feature_board = keras.layers.Input((self.board_size), dtype=np.int8)
         # 2D Matrix of float32
         float32_board = keras.layers.Lambda(lambda x: tf.cast(x, dtype=np.float32))(feature_board)
-        # convert into matrix with channels
-        board_with_channels = tf.keras.layers.Reshape(
-            target_shape=(self.board_height, self.board_width, 1),
-            input_shape=(self.board_height, self.board_width)
-        )(float32_board)
 
         # flatten the convolved board and concatenate it with other data
         # this will be used as input for the dense hidden layers
-        hidden_layer_in = keras.layers.Flatten()(board_with_channels)
+        hidden_layer_in = keras.layers.Flatten()(float32_board)
         # now 2 layers of hidden board size
         hidden_layer0_out = keras.layers.Dense(HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer_in)
         hidden_layer1_out = keras.layers.Dense(HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer0_out)
 
-        action_probs = keras.layers.Dense(self.board_width, activation='softmax')(hidden_layer1_out)
+        action_probs = keras.layers.Dense(self.board_size, activation='softmax')(hidden_layer1_out)
 
         # oldpolicy probs is the vector of predictions made by the old actor model
-        oldpolicy_probs = keras.layers.Input(shape=self.board_width)
+        oldpolicy_probs = keras.layers.Input(shape=self.board_size)
         # is a 1-hot vector cooresponding to the chosen_action (which may be different than the argmax since we add gumbel noise)
-        action_chosen = keras.layers.Input(shape=self.board_width)
+        action_chosen = keras.layers.Input(shape=self.board_size)
 
         # advantage captures how better an action is compared to the others at a given state
         # https://theaisummer.com/Actor_critics/
@@ -135,14 +129,9 @@ class PPOAgent:
     # The critic attempts to learn the advantage
     def _build_critic(self):
         # 2D Matrix of int8 inputs
-        feature_board = keras.layers.Input((self.board_height, self.board_width), dtype=np.int8)
+        feature_board = keras.layers.Input((self.board_size), dtype=np.int8)
         # 2D Matrix of float32
         float32_board = keras.layers.Lambda(lambda x: tf.cast(x, dtype=np.float32))(feature_board)
-        # convert into matrix with channels
-        board_with_channels = tf.keras.layers.Reshape(
-            target_shape=(self.board_height, self.board_width, 1),
-            input_shape=(self.board_height, self.board_width)
-        )(float32_board)
 
         # convolve the board so that the network can focus on key features
         # convolved_board0 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), padding="same", activation="relu")(board_with_channels)
@@ -151,7 +140,7 @@ class PPOAgent:
 
         # flatten the convolved board and concatenate it with other data
         # this will be used as input for the dense hidden layers
-        hidden_layer_in = keras.layers.Flatten()(board_with_channels)
+        hidden_layer_in = keras.layers.Flatten()(float32_board)
         # now 2 layers of hidden board size
         hidden_layer0_out = keras.layers.Dense(HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer_in)
         hidden_layer1_out = keras.layers.Dense(HIDDEN_LAYER_SIZE, activation='relu')(hidden_layer0_out)
@@ -192,14 +181,14 @@ class PPOAgent:
         batch_len = len(observation_batch)
 
         # Convert state batch into correct format
-        board_batched = np.zeros((batch_len, self.board_height, self.board_width))
+        board_batched = np.zeros((batch_len, self.board_size))
         for i, o in enumerate(observation_batch):
-            board_batched[i] = o.board
+            board_batched[i] = o.board.reshape(-1)
 
         # Create other PPO2 things (needed for training, but during inference we dont care)
         advantage_batched = np.zeros((batch_len, 1))
-        oldpolicy_probs_batched = np.zeros((batch_len, self.board_width))
-        chosen_action_batched = np.zeros((batch_len, self.board_width))
+        oldpolicy_probs_batched = np.zeros((batch_len, self.board_size))
+        chosen_action_batched = np.zeros((batch_len, self.board_size))
         entropy_weight_batched = np.zeros((batch_len, 1))
 
         p = self._actor(
@@ -221,9 +210,9 @@ class PPOAgent:
     ) -> npt.NDArray[np.float32]:
         batch_len = len(observation_batch)
         # Convert state batch into correct format
-        board_batched = np.zeros((batch_len, self.board_height, self.board_width))
+        board_batched = np.zeros((batch_len, self.board_size))
         for i, o in enumerate(observation_batch):
-            board_batched[i] = o.board
+            board_batched[i] = o.board.reshape(-1)
         
         return self._critic([board_batched])
 
@@ -243,16 +232,16 @@ class PPOAgent:
         assert batch_len == len(old_prediction_batch)
 
         # Convert state batch into correct format
-        board_batched = np.zeros((batch_len, self.board_height, self.board_width))
+        board_batched = np.zeros((batch_len, self.board_size))
         for i, o in enumerate(observation_batch):
-            board_batched[i] = o.board
+            board_batched[i] = o.board.reshape(-1)
 
         # Create other PPO2 things (needed for training, but during inference we dont care)
         advantage_batched = np.reshape(advantage_batch, (batch_len, 1))
         value_batched = np.reshape(value_batch, (batch_len, 1))
-        oldpolicy_probs_batched = np.reshape(old_prediction_batch, (batch_len, self.board_width))
+        oldpolicy_probs_batched = np.reshape(old_prediction_batch, (batch_len, self.board_size))
         # create 1 hot vector
-        chosen_action_batched = np.zeros((batch_len, self.board_width))
+        chosen_action_batched = np.zeros((batch_len, self.board_size))
         chosen_action_batched[np.arange(0, batch_len), action_batch] = 1
 
         entropy_weight = np.full((batch_len, 1), self._entropy_weight);
