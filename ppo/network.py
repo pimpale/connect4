@@ -13,13 +13,13 @@ ActionAxis: TypeAlias = NewType('Actions', axes.Axis)
 BOARD_CONV_FILTERS = 32
 HIDDEN_LAYER_SIZE = 32
 
-ACTOR_LR = 1e-4  # Lower lr stabilises training greatly
-CRITIC_LR = 1e-5  # Lower lr stabilises training greatly
+ACTOR_LR = 1e-5  # Lower lr stabilises training greatly
+CRITIC_LR = 1e-6  # Lower lr stabilises training greatly
 GAMMA = 0.8
 
 # PPO2
 ACTOR_PPO_LOSS_CLIPPING=0.2
-PPO_TRAINING_EPO = 5
+PPO_TRAINING_EPO = 1
 # H stands for entropy here
 H_TARGET = 0.1
 
@@ -50,8 +50,7 @@ class PPOAgent:
         
         # convolve the board so that the network can focus on key features
         convolved_board0 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), padding="same", activation="relu")(board_with_channels)
-        convolved_board1 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), padding="same", activation="relu")(convolved_board0)
-        convolved_board2 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), activation="relu")(convolved_board1)
+        convolved_board2 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), activation="relu")(convolved_board0)
 
         # flatten the convolved board and concatenate it with other data
         # this will be used as input for the dense hidden layers
@@ -152,8 +151,7 @@ class PPOAgent:
 
         # convolve the board so that the network can focus on key features
         convolved_board0 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), padding="same", activation="relu")(board_with_channels)
-        convolved_board1 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), padding="same", activation="relu")(convolved_board0)
-        convolved_board2 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), activation="relu")(convolved_board1)
+        convolved_board2 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), activation="relu")(convolved_board0)
 
         # flatten the convolved board and concatenate it with other data
         # this will be used as input for the dense hidden layers

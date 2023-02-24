@@ -1,5 +1,6 @@
 import numpy as np
-import numpy.typing as npt;
+import numpy.typing as npt
+from scipy.signal import convolve2d
 from dataclasses import dataclass
 from typing import Optional, TypeAlias
 
@@ -25,9 +26,9 @@ Value:TypeAlias = np.float32
 # Advantage of a particular action for an agent
 Advantage:TypeAlias = np.float32
 
-
 def print_obs(o:Observation):
     for row in reversed(o.board):
+        # We print '#' for our item, and 'O' for the opponent
         for x in row:
             c = ' '
             if x == 1:
@@ -49,35 +50,28 @@ def state_to_observation(state: State, actor: np.int8) -> Observation:
     o[s == 0] = 0
     return Observation(o)
 
-def winner(state:State) -> Optional[np.int8]:
-    s = state.board
-    ysize, xsize = s.shape
-    # check horizontal
-    for y in range(0, ysize):
-        for x in range(0, xsize-3):
-            actor = s[y][x]
-            if actor != 0 and s[y][x+1] == actor and s[y][x+2] == actor and s[y][x+3] == actor:
-                return actor
-    # check vertical
-    for x in range(0, xsize):
-        for y in range(0, ysize-3):
-            actor = s[y][x]
-            if actor != 0 and s[y+1][x] == actor and s[y+2][x] == actor and s[y+3][x] == actor:
-                return actor
-    # check diagonals 1 way
-    for y in range(0, ysize-3):
-        for x in range(0, xsize-3):
-            actor = s[y][x]
-            if actor != 0 and s[y+1][x+1] == actor and s[y+2][x+2] == actor and s[y+3][x+3] == actor:
-                return actor
-    # check diagonals other way
-    for y in range(0, ysize-3):
-        for x in range(3, xsize):
-            actor = s[y][x]
-            if actor != 0 and s[y+1][x-1] == actor and s[y+2][x-2] == actor and s[y+3][x-3] == actor:
-                return actor
-    # finally return None if no winner found
-    return None
+
+horizontal_kernel = np.array([[ 1, 1, 1, 1]])
+vertical_kernel = np.transpose(horizontal_kernel)
+diag1_kernel = np.eye(4, dtype=np.uint8)
+diag2_kernel = np.fliplr(diag1_kernel)
+detection_kernels = [horizontal_kernel, vertical_kernel, diag1_kernel, diag2_kernel]
+
+
+def is_winner(state:State, actor:np.int8) -> bool:
+    board = state.board
+    for kernel in detection_kernels:
+        if (convolve2d(board == actor, kernel, mode="valid") == 4).any():
+            return True
+    return False
+
+def winner(s:State):
+    players = np.unique(s.board)
+    for player in players:
+        if player == 0:
+            continue
+        if is_winner(s, player):
+            return player
 
 # returns if the board is completely filled
 def drawn(state:State) -> bool:
@@ -111,6 +105,9 @@ class Env():
             return True
         else:
             return drawn(self.state)
+
+    def legal_mask(self) -> npt.NDArray[np.bool8]:
+        return self.state.board[-1] == 0
 
     def step(self, a: Action, actor: np.int8) -> tuple[Reward, Observation]:
         for row in self.state.board:

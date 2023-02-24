@@ -163,7 +163,7 @@ def agent(agent_id, net_params_queue, exp_queue):
                 print(env.print_obs(obs))
 
                 # gumbel noise
-                noise = np.random.gumbel(size=len(action_prob))
+                noise = 0.1*np.random.gumbel(size=len(action_prob))
                 chosen_action: env.Action = np.argmax(np.log(action_prob) + noise)
 
                 s_batch.append(obs)
