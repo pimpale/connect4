@@ -279,6 +279,7 @@ class PPOAgent:
                 # Real values
                 board_batched,
             ],
+            batch_size=batch_len,
             epochs=PPO_TRAINING_EPO,
             verbose=self.verbosity,
             callbacks=[PrintLoss(base_step, 'actor_loss')]
@@ -289,6 +290,7 @@ class PPOAgent:
             board_batched,
             value_batched,
             epochs=PPO_TRAINING_EPO,
+            batch_size=batch_len,
             verbose=self.verbosity,
             callbacks=[PrintLoss(base_step, 'critic_loss')]
         )
