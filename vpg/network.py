@@ -13,9 +13,14 @@ ACTOR_LR = 1e-4  # Lower lr stabilises training greatly
 CRITIC_LR = 1e-4  # Lower lr stabilises training greatly
 GAMMA = 0.8
 
-def obs_batch_to_tensor(observation_batch:list[env.Observation]) -> torch.Tensor:
+def obs_batch_to_tensor(observation_batch:list[env.Observation], device:torch.device) -> torch.Tensor:
     # Convert state batch into correct format
-    return torch.as_tensor(np.stack([o.board for o in observation_batch]))
+    return torch.as_tensor(np.stack([o.board for o in observation_batch])).to(device)
+
+def obs_to_tensor(observation:env.Observation, device:torch.device) -> torch.Tensor:
+    # we need to add a batch axis and then convert into a tensor
+    return torch.as_tensor(np.stack([observation.board])).to(device)
+
 
 class Critic(nn.Module):
     def __init__(self, width:int, height:int):
@@ -31,21 +36,29 @@ class Critic(nn.Module):
         self.fc3 = nn.Linear(128, 1)
 
     def forward(self, x:torch.Tensor) -> torch.Tensor:
-        # cast to float32
+        # cast to float32 
+        # x in (Batch, Width, Height)
         x = x.to(torch.float32)
+        # extend with an extra dimension (in order to do a 2d convolution)
+        # x in (Batch, Channels, Width, Height) 
+        x = x.view((x.shape[0], 1, x.shape[1], x.shape[2]))
         # apply convolutions
         x = self.conv1(x)
         x = F.relu(x)
         x = self.conv2(x)
         x = F.relu(x)
-        # fully connected layers
+        # flatten everything except for batch
         x = torch.flatten(x,1)
+        # fully connected layers
         x = self.fc1(x)
         x = F.relu(x)
         x = self.fc2(x)
         x = F.relu(x)
         x = self.fc3(x)
-        return x
+        # delete extra dimension
+        # output in (Batch,)
+        output = x.view((x.shape[0]))
+        return output
 
 class Actor(nn.Module):
     def __init__(self, width:int, height:int):
@@ -54,7 +67,6 @@ class Actor(nn.Module):
         self.board_width = width
         self.board_height = height
 
-
         self.conv1 = nn.Conv2d(1, BOARD_CONV_FILTERS, kernel_size=3, padding=0)
         self.conv2 = nn.Conv2d(BOARD_CONV_FILTERS, BOARD_CONV_FILTERS, kernel_size=3, padding=0)
         self.fc1 = nn.Linear((width-4)*(height-4)*BOARD_CONV_FILTERS, 512)
@@ -62,20 +74,28 @@ class Actor(nn.Module):
         self.fc3 = nn.Linear(128, width)
 
     def forward(self, x:torch.Tensor) -> torch.Tensor:
-        # cast to float32
+        # cast to float32 
+        # x in (Batch, Width, Height)
         x = x.to(torch.float32)
+        # extend with an extra dimension (in order to do a 2d convolution)
+        # x in (Batch, Channels, Width, Height) 
+        x = x.view((x.shape[0], 1, x.shape[1], x.shape[2]))
         # apply convolutions
         x = self.conv1(x)
         x = F.relu(x)
         x = self.conv2(x)
         x = F.relu(x)
+        # flatten everything except for batch
         x = torch.flatten(x,1)
+        # apply fully connected layers
         x = self.fc1(x)
         x = F.relu(x)
         x = self.fc2(x)
         x = F.relu(x)
         x = self.fc3(x)
-        return x
+        # output in (Batch, Width) 
+        output = F.softmax(x, dim=1)
+        return output
 
 # https://spinningup.openai.com/en/latest/algorithms/vpg.html#key-equations
 # The standard policy gradient is given by:
@@ -111,7 +131,7 @@ def train(
         action_batch: list[env.Action],
         advantage_batch:list[env.Advantage],
         value_batch:list[env.Value],
-    ):
+    ) -> tuple[float, float]:
         # assert that the models are on the same device
         assert next(critic.parameters()).device == next(actor.parameters()).device
         # assert that the batch_lengths are the same
@@ -125,10 +145,10 @@ def train(
         # convert data to tensors on correct device
 
         # in (Batch, Width, Height)
-        observation_batch_tensor = obs_batch_to_tensor(observation_batch).to(device)
+        observation_batch_tensor = obs_batch_to_tensor(observation_batch, device)
 
         # in (Batch,) 
-        true_value_batch_tensor = torch.tensor(value_batch).to(device)
+        true_value_batch_tensor = torch.tensor(value_batch, dtype=torch.float32).to(device)
 
         # in (Batch, Action)
         chosen_action_tensor = F.one_hot(torch.tensor(action_batch), num_classes=actor.board_width).to(device)
@@ -139,16 +159,19 @@ def train(
         # train critic
         critic_optimizer.zero_grad()
         pred_value_batch_tensor = critic.forward(observation_batch_tensor)
-        loss = F.mse_loss(pred_value_batch_tensor, true_value_batch_tensor)
-        loss.backward()
+        critic_loss = F.mse_loss(pred_value_batch_tensor, true_value_batch_tensor)
+        critic_loss.backward()
         critic_optimizer.step()
 
         # train actor
         actor_optimizer.zero_grad()
         action_probs = actor.forward(observation_batch_tensor)
-        loss = compute_policy_gradient_loss(action_probs, chosen_action_tensor, advantage_batch_tensor)
-        loss.backward()
+        actor_loss = compute_policy_gradient_loss(action_probs, chosen_action_tensor, advantage_batch_tensor)
+        actor_loss.backward()
         actor_optimizer.step()
+        
+        # return the respective losses 
+        return (float(actor_loss), float(critic_loss))
 
 
 # computes advantage
@@ -165,9 +188,7 @@ def compute_advantage(
     trajectory_advantages = np.zeros(trajectory_len)
 
     # calculate the value of the state at the end
-    last_obs = obs_batch_to_tensor([trajectory_observations[-1]])
-    # move to the device
-    last_obs.to(next(critic.parameters()).device)
+    last_obs = obs_to_tensor(trajectory_observations[-1], next(critic.parameters()).device)
     last_obs_value = critic.forward(last_obs)[0]
 
     trajectory_advantages[-1] = last_obs_value  + trajectory_rewards[-1]
