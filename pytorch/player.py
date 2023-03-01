@@ -14,11 +14,16 @@ class Player(ABC):
     def play(self, e:env.Env) -> tuple[env.Observation, np.ndarray, env.Action, env.Reward]:
         pass
 
+    @abstractmethod
+    def name(self) -> str:
+        pass
+
 
 class ActorPlayer(Player):
-    def __init__(self, actor:network.Actor, player:np.int8) -> None:
+    def __init__(self, actor:network.Actor, epoch:int, player:np.int8) -> None:
         self.actor = actor
         self.player = player
+        self.epoch = epoch
 
     def play(self, e:env.Env) -> tuple[env.Observation, np.ndarray, env.Action, env.Reward]:
         obs = e.observe(self.player)
@@ -53,6 +58,9 @@ class ActorPlayer(Player):
             chosen_action,
             reward
         )
+    
+    def name(self) -> str:
+        return f"actor_ckpt_{self.epoch}"
 
 class RandomPlayer(Player):
     def __init__(self, player:np.int8) -> None:
@@ -71,3 +79,6 @@ class RandomPlayer(Player):
             chosen_action,
             reward
         )
+    
+    def name(self) -> str:
+        return "random"

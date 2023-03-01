@@ -10,7 +10,7 @@ BOARD_CONV_FILTERS = 16
 
 ACTOR_LR = 1e-4  # Lower lr stabilises training greatly
 CRITIC_LR = 1e-4  # Lower lr stabilises training greatly
-GAMMA = 0.8
+GAMMA = 0.95
 PPO_EPS = 0.2
 
 # (Channel, Width, Height)
@@ -70,8 +70,7 @@ class Actor(nn.Module):
         self.conv1 = nn.Conv2d(2, BOARD_CONV_FILTERS, kernel_size=3, padding=0)
         self.conv2 = nn.Conv2d(BOARD_CONV_FILTERS, BOARD_CONV_FILTERS, kernel_size=3, padding=0)
         self.fc1 = nn.Linear((width-4)*(height-4)*BOARD_CONV_FILTERS, 512)
-        self.fc2 = nn.Linear(512, 128)
-        self.fc3 = nn.Linear(128, width)
+        self.fc2 = nn.Linear(512, width)
 
     def forward(self, x:torch.Tensor) -> torch.Tensor:
         # cast to float32 
@@ -88,8 +87,6 @@ class Actor(nn.Module):
         x = self.fc1(x)
         x = F.relu(x)
         x = self.fc2(x)
-        x = F.relu(x)
-        x = self.fc3(x)
         # output in (Batch, Width) 
         output = F.softmax(x, dim=1)
         return output
@@ -205,7 +202,7 @@ def compute_ppo_loss(
         # in (Batch,)
         entropy_at_t = -torch.sum(torch.log(pi_theta_given_st)*pi_theta_given_st, 1)
 
-        total_loss_at_t = -ppo2loss_at_t - 0.1*entropy_at_t
+        total_loss_at_t = -ppo2loss_at_t - entropy_at_t
 
         # we take the average loss over all examples
         return total_loss_at_t.mean()
