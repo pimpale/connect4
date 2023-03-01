@@ -38,18 +38,12 @@ class PPOAgent:
     # Private
     def _build_actor(self):
         # 2D Matrix of int8 inputs
-        feature_board = keras.layers.Input((self.board_height, self.board_width), dtype=np.int8)
+        feature_board = keras.layers.Input((self.board_height, self.board_width, 2), dtype=np.bool8)
         # 2D Matrix of float32
         float32_board = keras.layers.Lambda(lambda x: tf.cast(x, dtype=np.float32))(feature_board)
-        # convert into matrix with channels
-        board_with_channels = tf.keras.layers.Reshape(
-            target_shape=(self.board_height, self.board_width, 1),
-            input_shape=(self.board_height, self.board_width)
-        )(float32_board)
-
         
         # convolve the board so that the network can focus on key features
-        convolved_board0 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), padding="same", activation="relu")(board_with_channels)
+        convolved_board0 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), padding="same", activation="relu")(float32_board)
         convolved_board2 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), activation="relu")(convolved_board0)
 
         # flatten the convolved board and concatenate it with other data
@@ -109,9 +103,6 @@ class PPOAgent:
                 tf.clip_by_value(w, 1-ACTOR_PPO_LOSS_CLIPPING, 1+ACTOR_PPO_LOSS_CLIPPING)*advantage
             )
 
-            # Dual Loss (Unsure what the advantage of this is???)
-            # dual_loss = tf.where(tf.less(advantage, 0.), tf.maximum(ppo2loss, 3. * advantage), ppo2loss)
-
             # Calculate Entropy (how uncertain the prediction is)
             # This is defined as sum over a: -pi(a)*log(pi(a))
             entropy:ttf.Tensor1[ttf.float32, axes.Batch] = -tf.reduce_sum(
@@ -139,18 +130,13 @@ class PPOAgent:
     # Private
     # The critic attempts to learn the advantage
     def _build_critic(self):
-        # 2D Matrix of int8 inputs
-        feature_board = keras.layers.Input((self.board_height, self.board_width), dtype=np.int8)
-        # 2D Matrix of float32
+        # 3D Matrix of int8 inputs
+        feature_board = keras.layers.Input((self.board_height, self.board_width, 2), dtype=np.bool8)
+        # 3D Matrix of float32
         float32_board = keras.layers.Lambda(lambda x: tf.cast(x, dtype=np.float32))(feature_board)
-        # convert into matrix with channels
-        board_with_channels = tf.keras.layers.Reshape(
-            target_shape=(self.board_height, self.board_width, 1),
-            input_shape=(self.board_height, self.board_width)
-        )(float32_board)
 
         # convolve the board so that the network can focus on key features
-        convolved_board0 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), padding="same", activation="relu")(board_with_channels)
+        convolved_board0 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), padding="same", activation="relu")(float32_board)
         convolved_board2 = keras.layers.Conv2D(BOARD_CONV_FILTERS, (4, 4), activation="relu")(convolved_board0)
 
         # flatten the convolved board and concatenate it with other data
@@ -189,6 +175,11 @@ class PPOAgent:
         self._actor.set_weights(weights[0])
         self._critic.set_weights(weights[1])
 
+    
+    # (Channel, Width, Height)
+    def reshape_board(self, o:env.Observation) -> np.ndarray:
+        return np.dstack([o.board == 1, o.board == 2]) 
+
     def predict_batch(
         self,
         observation_batch: list[env.Observation],
@@ -196,9 +187,9 @@ class PPOAgent:
         batch_len = len(observation_batch)
 
         # Convert state batch into correct format
-        board_batched = np.zeros((batch_len, self.board_height, self.board_width))
+        board_batched = np.zeros((batch_len, self.board_height, self.board_width, 2))
         for i, o in enumerate(observation_batch):
-            board_batched[i] = o.board
+            board_batched[i] = self.reshape_board(o)
 
         # Create other PPO2 things (needed for training, but during inference we dont care)
         advantage_batched = np.zeros((batch_len, 1))
@@ -225,9 +216,9 @@ class PPOAgent:
     ) -> npt.NDArray[np.float32]:
         batch_len = len(observation_batch)
         # Convert state batch into correct format
-        board_batched = np.zeros((batch_len, self.board_height, self.board_width))
+        board_batched = np.zeros((batch_len, self.board_height, self.board_width, 2))
         for i, o in enumerate(observation_batch):
-            board_batched[i] = o.board
+            board_batched[i] = self.reshape_board(o)
         
         return self._critic([board_batched])
 
@@ -247,9 +238,9 @@ class PPOAgent:
         assert batch_len == len(old_prediction_batch)
 
         # Convert state batch into correct format
-        board_batched = np.zeros((batch_len, self.board_height, self.board_width))
+        board_batched = np.zeros((batch_len, self.board_height, self.board_width, 2))
         for i, o in enumerate(observation_batch):
-            board_batched[i] = o.board
+            board_batched[i] =  self.reshape_board(o)
 
         # Create other PPO2 things (needed for training, but during inference we dont care)
         advantage_batched = np.reshape(advantage_batch, (batch_len, 1))

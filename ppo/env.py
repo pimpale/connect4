@@ -26,6 +26,9 @@ Value:TypeAlias = np.float32
 # Advantage of a particular action for an agent
 Advantage:TypeAlias = np.float32
 
+PLAYER1 = np.int8(1)
+PLAYER2 = np.int8(2)
+
 def print_obs(o:Observation):
     for row in reversed(o.board):
         # We print '#' for our item, and 'O' for the opponent
@@ -65,33 +68,27 @@ def is_winner(state:State, actor:np.int8) -> bool:
             return True
     return False
 
-def winner(s:State):
-    players = np.unique(s.board)
-    for player in players:
-        if player == 0:
-            continue
-        if is_winner(s, player):
-            return player
-
 # returns if the board is completely filled
 def drawn(state:State) -> bool:
     return 0 not in state.board
 
 # return the reward for the actor
 def state_to_reward(s: State, actor: np.int8) -> Reward:
-    w = winner(s)
-    if w == actor:
+    opponent = PLAYER2 if actor == PLAYER1 else PLAYER1
+    
+    if is_winner(s, actor):
         return np.float32(1.0)
-    elif w is not None:
+    elif is_winner(s, opponent):
         return np.float32(-1.0)
     else:
         return np.float32(0.0)
-    
+
 class Env():
     def __init__(
         self,
         dims:tuple[int,int]
     ):
+        self._game_over = False
         self.state: State = initial_state(dims)
 
     def reset(self) -> None:
@@ -101,10 +98,7 @@ class Env():
         return state_to_observation(self.state, actor)
 
     def game_over(self) -> bool:
-        if winner(self.state) is not None:
-            return True
-        else:
-            return drawn(self.state)
+        return self._game_over
 
     def legal_mask(self) -> npt.NDArray[np.bool8]:
         return self.state.board[-1] == 0
@@ -117,5 +111,10 @@ class Env():
 
         r = state_to_reward(self.state, actor)
         o = state_to_observation(self.state, actor)
+
+        if r != 0:
+            self._game_over = True
+        elif drawn(self.state):
+            self._game_over = True
 
         return (r, o)
