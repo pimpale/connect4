@@ -26,9 +26,13 @@ Value:TypeAlias = np.float32
 # Advantage of a particular action for an agent
 Advantage:TypeAlias = np.float32
 
-PLAYER1 = np.int8(1)
-PLAYER2 = np.int8(2)
+Actor:TypeAlias = np.int8
 
+PLAYER1:Actor = np.int8(1)
+PLAYER2:Actor = np.int8(2)
+
+def opponent(actor:Actor) -> Actor:
+    return PLAYER2 if actor == PLAYER1 else PLAYER1
 
 def print_obs(o:Observation):
     for row in reversed(o.board):
@@ -90,9 +94,12 @@ class Env():
         dims:tuple[int,int]
     ):
         self._game_over = False
+        self._moves = []
         self.state: State = initial_state(dims)
 
     def reset(self) -> None:
+        self._game_over = False
+        self._moves = []
         self.state = initial_state(self.state.board.shape)
 
     def observe(self, actor: np.int8) -> Observation:
@@ -108,8 +115,10 @@ class Env():
         return self.state.board[-1] == 0
 
     def step(self, a: Action, actor: np.int8) -> tuple[Reward, Observation]:
-        for row in self.state.board:
+
+        for i,row in enumerate(self.state.board):
             if row[a] == 0:
+                self._moves.append((i,a))
                 row[a] = actor
                 break
 
@@ -122,3 +131,8 @@ class Env():
             self._game_over = True
 
         return (r, o)
+    
+    def undo(self):
+        if len(self._moves) == 0:
+            return
+        self.state.board[self._moves.pop()] = 0

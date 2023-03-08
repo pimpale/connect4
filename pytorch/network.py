@@ -9,8 +9,8 @@ import torch.nn.functional as F
 BOARD_CONV_FILTERS = 16
 
 ACTOR_LR = 1e-4  # Lower lr stabilises training greatly
-CRITIC_LR = 1e-4  # Lower lr stabilises training greatly
-GAMMA = 0.95
+CRITIC_LR = 1e-5  # Lower lr stabilises training greatly
+GAMMA = 0.99
 PPO_EPS = 0.2
 
 # (Channel, Width, Height)
@@ -38,8 +38,9 @@ class Critic(nn.Module):
         self.board_width = width
         self.board_height = height
 
-        self.conv1 = nn.Conv2d(2, BOARD_CONV_FILTERS, kernel_size=4, padding=0)
-        self.fc1 = nn.Linear((width-3)*(height-3)*BOARD_CONV_FILTERS, 512)
+        self.conv1 = nn.Conv2d(2, BOARD_CONV_FILTERS, kernel_size=3, padding=0)
+        self.conv2 = nn.Conv2d(BOARD_CONV_FILTERS, BOARD_CONV_FILTERS, kernel_size=3, padding=0)
+        self.fc1 = nn.Linear((width-4)*(height-4)*BOARD_CONV_FILTERS, 512)
         self.fc2 = nn.Linear(512, 1)
 
     def forward(self, x:torch.Tensor) -> torch.Tensor:
@@ -48,6 +49,8 @@ class Critic(nn.Module):
         x = x.to(torch.float32)
         # apply convolutions
         x = self.conv1(x)
+        x = F.relu(x)
+        x = self.conv2(x)
         x = F.relu(x)
         # flatten everything except for batch
         x = torch.flatten(x,1)
