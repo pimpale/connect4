@@ -79,11 +79,9 @@ def drawn(state:State) -> bool:
 
 # return the reward for the actor
 def state_to_reward(s: State, actor: np.int8) -> Reward:
-    opponent = PLAYER2 if actor == PLAYER1 else PLAYER1
-    
     if is_winner(s, actor):
         return np.float32(1.0)
-    elif is_winner(s, opponent):
+    elif is_winner(s, opponent(actor)):
         return np.float32(-1.0)
     else:
         return np.float32(0.0)
