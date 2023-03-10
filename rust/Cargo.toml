@@ -1,5 +1,5 @@
 [package]
-name = "rust"
+name = "connect4"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 rand = "0.8.5"
 tch = "0.10.3"
+tensorboard-rs = "0.5.9"

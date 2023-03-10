@@ -71,7 +71,7 @@ pub struct Actor<const WIDTH: usize, const HEIGHT: usize> {
 }
 
 impl<const WIDTH: usize, const HEIGHT: usize> Actor<WIDTH, HEIGHT> {
-    fn new(vs: &nn::Path) -> Self {
+    pub fn new(vs: &nn::Path) -> Self {
         let conv1 = nn::conv2d(vs, 3, BOARD_CONV_FILTERS, 3, Default::default());
         let conv2 = nn::conv2d(
             vs,
@@ -133,99 +133,7 @@ pub fn obs_to_tensor<const WIDTH: usize, const HEIGHT: usize>(
         .to_device(device)
 }
 
-// def compute_ppo_loss(
-//         # Old policy network's probability of choosing an action
-//         # in (Batch, Action)
-//         pi_thetak_given_st: torch.Tensor,
-//         # Current policy network's probability of choosing an action
-//         # in (Batch, Action)
-//         pi_theta_given_st: torch.Tensor,
-//         # One hot encoding of which action was chosen
-//         # in (Batch, Action)
-//         a_t: torch.Tensor,
-//         # Advantage of the chosen action
-//         A_pi_theta_given_st_at: torch.Tensor,
-//     ) -> torch.Tensor:
-//         # in (Batch,)
-//         pi_theta_given_st_at = torch.sum(pi_theta_given_st*a_t, 1)
-//         pi_thetak_given_st_at = torch.sum(pi_thetak_given_st*a_t, 1)
-//
-//         # the likelihood ratio (used to penalize divergence from the old policy)
-//         likelihood_ratio = pi_theta_given_st_at / pi_thetak_given_st_at
-//
-//         # in (Batch,)
-//         ppo2loss_at_t = torch.minimum(
-//             likelihood_ratio*A_pi_theta_given_st_at,
-//             torch.clip(likelihood_ratio, 1-PPO_EPS, 1+PPO_EPS)*A_pi_theta_given_st_at
-//         )
-//
-//         # in (Batch,)
-//         entropy_at_t = -torch.sum(torch.log(pi_theta_given_st)*pi_theta_given_st, 1)
-//
-//         total_loss_at_t = -ppo2loss_at_t - entropy_at_t
-//
-//         # we take the average loss over all examples
-//         return total_loss_at_t.mean()
-//
-// def train_ppo(
-//         actor:Actor,
-//         critic:Critic,
-//         actor_optimizer:torch.optim.Optimizer,
-//         critic_optimizer:torch.optim.Optimizer,
-//         observation_batch: list[env.Observation],
-//         action_batch: list[env.Action],
-//         oldpolicy_batch: list[np.ndarray],
-//         advantage_batch:list[env.Advantage],
-//         value_batch:list[env.Value],
-//     ) -> tuple[float, float]:
-//         # assert that the models are on the same device
-//         assert next(critic.parameters()).device == next(actor.parameters()).device
-//         # assert that the batch_lengths are the same
-//         assert len(observation_batch) == len(action_batch)
-//         assert len(observation_batch) == len(oldpolicy_batch)
-//         assert len(observation_batch) == len(advantage_batch)
-//         assert len(observation_batch) == len(value_batch)
-//
-//         # get device
-//         device = next(critic.parameters()).device
-//
-//         # convert data to tensors on correct device
-//
-//         # in (Batch, Width, Height)
-//         observation_batch_tensor = obs_batch_to_tensor(observation_batch, device)
-//
-//         # in (Batch,)
-//         true_value_batch_tensor = torch.tensor(value_batch, dtype=torch.float32, device=device)
-//
-//         # in (Batch, Action)
-//         chosen_action_tensor = F.one_hot(torch.tensor(action_batch).to(device), num_classes=actor.board_width)
-//
-//         # in (Batch, Action)
-//         old_policy_action_probs_batch_tensor = torch.tensor(np.array(oldpolicy_batch)).to(device)
-//
-//         # in (Batch,)
-//         advantage_batch_tensor = torch.tensor(advantage_batch).to(device)
-//
-//         # train critic
-//         critic_optimizer.zero_grad()
-//         pred_value_batch_tensor = critic.forward(observation_batch_tensor)
-//         critic_loss = F.mse_loss(pred_value_batch_tensor, true_value_batch_tensor)
-//         critic_loss.backward()
-//         critic_optimizer.step()
-//
-//         # train actor
-//         actor_optimizer.zero_grad()
-//         current_policy_action_probs = actor.forward(observation_batch_tensor)
-//         actor_loss = compute_ppo_loss(old_policy_action_probs_batch_tensor, current_policy_action_probs, chosen_action_tensor, advantage_batch_tensor)
-//         actor_loss.backward()
-//         actor_optimizer.step()
-//
-//         # return the respective losses
-//         return (float(actor_loss), float(critic_loss))
-//
-//
-
-fn ppo2_loss(
+pub fn ppo2_loss(
     // Old policy network's probability of choosing an action
     // in (Batch, Action)
     pi_thetak_given_st: &tch::Tensor,
@@ -236,7 +144,7 @@ fn ppo2_loss(
     // in (Batch, Action)
     a_t: &tch::Tensor,
     // Advantage of the chosen action
-    A_pi_theta_given_st_at: &tch::Tensor,
+    a_pi_theta_given_st_at: &tch::Tensor,
 ) -> tch::Tensor {
     let batch_size = pi_theta_given_st.size()[0];
 
@@ -251,8 +159,8 @@ fn ppo2_loss(
 
     // in (Batch,)
     let ppo2loss_at_t = tch::Tensor::minimum(
-        &(&likelihood_ratio * A_pi_theta_given_st_at),
-        &(&likelihood_ratio.clamp(1.0 - PPO_EPS, 1.0 + PPO_EPS) * A_pi_theta_given_st_at),
+        &(&likelihood_ratio * a_pi_theta_given_st_at),
+        &(&likelihood_ratio.clamp(1.0 - PPO_EPS, 1.0 + PPO_EPS) * a_pi_theta_given_st_at),
     );
 
     // in (Batch,)
@@ -269,7 +177,7 @@ fn ppo2_loss(
     total_loss_at_t.mean(tch::Kind::Float)
 }
 
-fn train_ppo<const WIDTH: usize, const HEIGHT: usize>(
+pub fn train_ppo<const WIDTH: usize, const HEIGHT: usize>(
     actor: &Actor<WIDTH, HEIGHT>,
     critic: &Critic<WIDTH, HEIGHT>,
     actor_optimizer: &mut tch::nn::Optimizer,

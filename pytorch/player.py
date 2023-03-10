@@ -42,17 +42,12 @@ class ActorPlayer(Player):
         if np.isnan(action_probs).any():
             raise ValueError("NaN found!")
     
-        legal_mask = e.legal_mask() 
-    
-        action_logprobs = np.log(action_probs)
-    
-        # apply noise to probs
-        noise = 0.1*np.random.gumbel(size=len(action_logprobs))
-        adjusted_action_probs = scipy.special.softmax(action_logprobs + noise) 
-    
-        legal_mask = e.legal_mask() 
-    
-        chosen_action: env.Action = np.argmax(adjusted_action_probs*legal_mask)
+        legal_mask = e.legal_mask()
+
+        raw_p = action_probs*legal_mask
+        p = raw_p/np.sum(raw_p)
+
+        chosen_action = env.Action(np.random.choice(len(p), p=p))
         reward,_ = e.step(chosen_action, self.player)
     
         return (
@@ -61,6 +56,7 @@ class ActorPlayer(Player):
             chosen_action,
             reward
         )
+    
     
     def name(self) -> str:
         return f"actor_ckpt_{self.epoch}"

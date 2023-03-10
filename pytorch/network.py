@@ -205,7 +205,7 @@ def compute_ppo_loss(
         # in (Batch,)
         entropy_at_t = -torch.sum(torch.log(pi_theta_given_st)*pi_theta_given_st, 1)
 
-        total_loss_at_t = -ppo2loss_at_t - entropy_at_t
+        total_loss_at_t = -ppo2loss_at_t - 0.1*entropy_at_t
 
         # we take the average loss over all examples
         return total_loss_at_t.mean()
@@ -241,7 +241,7 @@ def train_ppo(
         true_value_batch_tensor = torch.tensor(value_batch, dtype=torch.float32, device=device)
 
         # in (Batch, Action)
-        chosen_action_tensor = F.one_hot(torch.tensor(action_batch).to(device), num_classes=actor.board_width)
+        chosen_action_tensor = F.one_hot(torch.tensor(action_batch).to(device).long(), num_classes=actor.board_width)
 
         # in (Batch, Action)
         old_policy_action_probs_batch_tensor = torch.tensor(np.array(oldpolicy_batch)).to(device)
