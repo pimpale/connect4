@@ -128,13 +128,14 @@ def minimax(e:env.Env, depth:int, player:env.Actor) -> tuple[env.Reward, env.Act
     return (best_reward, best_action)
 
 class MinimaxPlayer(Player):
-    def __init__(self, player:env.Actor, depth:int) -> None:
+    def __init__(self, player:env.Actor, depth:int, randomness:float) -> None:
         self.player = player
         self.depth = depth
+        self.randomness = randomness
     
     def play(self, e:env.Env) -> tuple[env.Observation, np.ndarray, env.Action, env.Reward]:
         # introduce some randomness
-        if np.random.random() > 0.5:
+        if np.random.random() < self.randomness:
             return RandomPlayer(self.player).play(e)
         
         obs = e.observe(self.player)
@@ -150,4 +151,4 @@ class MinimaxPlayer(Player):
         )
     
     def name(self) -> str:
-        return "minimax"
+        return f"minimax(depth={self.depth},randomness={self.randomness})"

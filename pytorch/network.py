@@ -6,12 +6,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # Hyperparameters
-BOARD_CONV_FILTERS = 16
+BOARD_CONV_FILTERS = 32
 
 ACTOR_LR = 1e-4  # Lower lr stabilises training greatly
 CRITIC_LR = 1e-5  # Lower lr stabilises training greatly
-GAMMA = 0.99
+GAMMA = 0.95
 PPO_EPS = 0.2
+PPO_GRAD_DESCENT_STEPS = 10
 
 # (Channel, Width, Height)
 def reshape_board(o:env.Observation) -> np.ndarray:
@@ -257,11 +258,16 @@ def train_ppo(
         critic_optimizer.step()
 
         # train actor
-        actor_optimizer.zero_grad()
-        current_policy_action_probs = actor.forward(observation_batch_tensor)
-        actor_loss = compute_ppo_loss(old_policy_action_probs_batch_tensor, current_policy_action_probs, chosen_action_tensor, advantage_batch_tensor)
-        actor_loss.backward()
-        actor_optimizer.step()
+        # Recall that in the PPO algorithm, we need to calculate the optimal theta with respect to the loss function
+        # The amount theta can diverge from theta_k is limited by the clipping function
+        # we use gradient descent in order to find the optimal theta, repeatedly updating theta_k to come closer to argmax L() 
+        actor_loss = 0
+        for _ in range(PPO_GRAD_DESCENT_STEPS):
+            actor_optimizer.zero_grad()
+            current_policy_action_probs = actor.forward(observation_batch_tensor)
+            actor_loss = compute_ppo_loss(old_policy_action_probs_batch_tensor, current_policy_action_probs, chosen_action_tensor, advantage_batch_tensor)
+            actor_loss.backward()
+            actor_optimizer.step()
         
         # return the respective losses 
         return (float(actor_loss), float(critic_loss))
