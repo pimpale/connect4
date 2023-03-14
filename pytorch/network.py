@@ -6,12 +6,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # Hyperparameters
-BOARD_CONV_FILTERS = 32
+BOARD_CONV_FILTERS = 48
 
 ACTOR_LR = 1e-4  # Lower lr stabilises training greatly
-CRITIC_LR = 1e-5  # Lower lr stabilises training greatly
-GAMMA = 0.95
-PPO_EPS = 0.2
+CRITIC_LR = 1e-4  # Lower lr stabilises training greatly
+GAMMA = 0.90
+PPO_EPS = 0.1
 PPO_GRAD_DESCENT_STEPS = 10
 
 # (Channel, Width, Height)
@@ -206,7 +206,7 @@ def compute_ppo_loss(
         # in (Batch,)
         entropy_at_t = -torch.sum(torch.log(pi_theta_given_st)*pi_theta_given_st, 1)
 
-        total_loss_at_t = -ppo2loss_at_t - 0.1*entropy_at_t
+        total_loss_at_t = -ppo2loss_at_t - 0.2*entropy_at_t
 
         # we take the average loss over all examples
         return total_loss_at_t.mean()
@@ -221,7 +221,7 @@ def train_ppo(
         oldpolicy_batch: list[np.ndarray],
         advantage_batch:list[env.Advantage],
         value_batch:list[env.Value],
-    ) -> tuple[float, float]:
+    ) -> tuple[list[float], list[float]]:
         # assert that the models are on the same device
         assert next(critic.parameters()).device == next(actor.parameters()).device
         # assert that the batch_lengths are the same
@@ -261,16 +261,17 @@ def train_ppo(
         # Recall that in the PPO algorithm, we need to calculate the optimal theta with respect to the loss function
         # The amount theta can diverge from theta_k is limited by the clipping function
         # we use gradient descent in order to find the optimal theta, repeatedly updating theta_k to come closer to argmax L() 
-        actor_loss = 0
+        actor_losses = []
         for _ in range(PPO_GRAD_DESCENT_STEPS):
             actor_optimizer.zero_grad()
             current_policy_action_probs = actor.forward(observation_batch_tensor)
             actor_loss = compute_ppo_loss(old_policy_action_probs_batch_tensor, current_policy_action_probs, chosen_action_tensor, advantage_batch_tensor)
             actor_loss.backward()
+            actor_losses += [float(actor_loss)]
             actor_optimizer.step()
         
         # return the respective losses 
-        return (float(actor_loss), float(critic_loss))
+        return (actor_losses, [float(critic_loss)]*PPO_GRAD_DESCENT_STEPS)
 
 
 
