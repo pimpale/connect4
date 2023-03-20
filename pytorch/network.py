@@ -6,12 +6,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # Hyperparameters
-BOARD_CONV_FILTERS = 48
+BOARD_CONV_FILTERS = 64
 
 ACTOR_LR = 1e-4  # Lower lr stabilises training greatly
 CRITIC_LR = 1e-4  # Lower lr stabilises training greatly
 GAMMA = 0.90
-PPO_EPS = 0.1
+PPO_EPS = 0.2
 PPO_GRAD_DESCENT_STEPS = 10
 
 # (Channel, Width, Height)
@@ -206,7 +206,7 @@ def compute_ppo_loss(
         # in (Batch,)
         entropy_at_t = -torch.sum(torch.log(pi_theta_given_st)*pi_theta_given_st, 1)
 
-        total_loss_at_t = -ppo2loss_at_t - 0.2*entropy_at_t
+        total_loss_at_t = -ppo2loss_at_t - 0.1*entropy_at_t
 
         # we take the average loss over all examples
         return total_loss_at_t.mean()
