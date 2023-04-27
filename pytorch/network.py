@@ -206,7 +206,7 @@ def compute_ppo_loss(
         # in (Batch,)
         entropy_at_t = -torch.sum(torch.log(pi_theta_given_st)*pi_theta_given_st, 1)
 
-        total_loss_at_t = -ppo2loss_at_t - 0.1*entropy_at_t
+        total_loss_at_t = -ppo2loss_at_t - 0.2*entropy_at_t
 
         # we take the average loss over all examples
         return total_loss_at_t.mean()
