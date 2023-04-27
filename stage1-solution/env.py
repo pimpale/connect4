@@ -1,18 +1,18 @@
 import numpy as np
-import numpy.typing as npt
 from scipy.signal import convolve2d
 from dataclasses import dataclass
-from typing import Optional, TypeAlias
+from typing import Any, TypeAlias, Literal
 
 @dataclass
 class State:
     """State of the game"""
-    board: npt.NDArray[np.int8]
+    board: np.ndarray[Any, np.dtype[np.int8]]
 
 @dataclass
 class Observation:
     """Observation by a single player of the game"""
-    board:npt.NDArray[np.int8]
+    board: np.ndarray[Any, np.dtype[np.int8]]
+
 
 # Column to place it in
 Action:TypeAlias = np.int8
@@ -26,8 +26,13 @@ Value:TypeAlias = np.float32
 # Advantage of a particular action for an agent
 Advantage:TypeAlias = np.float32
 
-PLAYER1 = np.int8(1)
-PLAYER2 = np.int8(2)
+Player:TypeAlias = np.int8
+
+PLAYER1:Player = np.int8(1)
+PLAYER2:Player = np.int8(2)
+
+def opponent(actor:Player) -> Player:
+    return PLAYER2 if actor == PLAYER1 else PLAYER1
 
 def print_obs(o:Observation):
     for row in reversed(o.board):
@@ -61,7 +66,7 @@ diag2_kernel = np.fliplr(diag1_kernel)
 detection_kernels = [horizontal_kernel, vertical_kernel, diag1_kernel, diag2_kernel]
 
 
-def is_winner(state:State, actor:np.int8) -> bool:
+def is_winner(state:State, actor:Player) -> bool:
     board = state.board
     for kernel in detection_kernels:
         if (convolve2d(board == actor, kernel, mode="valid") == 4).any():
@@ -73,12 +78,10 @@ def drawn(state:State) -> bool:
     return 0 not in state.board
 
 # return the reward for the actor
-def state_to_reward(s: State, actor: np.int8) -> Reward:
-    opponent = PLAYER2 if actor == PLAYER1 else PLAYER1
-    
-    if is_winner(s, actor):
+def state_to_reward(s: State, player: Player) -> Reward:
+    if is_winner(s, player):
         return np.float32(1.0)
-    elif is_winner(s, opponent):
+    elif is_winner(s, opponent(player)):
         return np.float32(-1.0)
     else:
         return np.float32(0.0)
@@ -89,9 +92,14 @@ class Env():
         dims:tuple[int,int]
     ):
         self._game_over = False
+        self._winner = None
+        self._moves = []
         self.state: State = initial_state(dims)
 
     def reset(self) -> None:
+        self._game_over = False
+        self._winner = None
+        self._moves = []
         self.state = initial_state(self.state.board.shape)
 
     def observe(self, actor: np.int8) -> Observation:
@@ -100,21 +108,39 @@ class Env():
     def game_over(self) -> bool:
         return self._game_over
 
-    def legal_mask(self) -> npt.NDArray[np.bool8]:
+    def winner(self) -> Player | None:
+        return self._winner
+
+    def dims(self) -> tuple[int, int]:
+        return self.state.board.shape
+
+    def legal_mask(self) -> np.ndarray[Any, np.dtype[np.bool8]]:
         return self.state.board[-1] == 0
 
-    def step(self, a: Action, actor: np.int8) -> tuple[Reward, Observation]:
-        for row in self.state.board:
+    def legal_actions(self) -> list[Action]:
+        return [Action(i) for i in range(self.dims()[1]) if self.legal_mask()[i]]
+
+    def step(self, a: Action, actor: Player) -> Reward:
+
+        for i,row in enumerate(self.state.board):
             if row[a] == 0:
+                self._moves.append((i,a))
                 row[a] = actor
                 break
 
         r = state_to_reward(self.state, actor)
-        o = state_to_observation(self.state, actor)
 
         if r != 0:
             self._game_over = True
+            self._winner = actor
         elif drawn(self.state):
             self._game_over = True
 
-        return (r, o)
+        return r
+    
+    def undo(self):
+        if len(self._moves) == 0:
+            return
+        self.state.board[self._moves.pop()] = 0
+        self._winner = None
+        self._game_over = False
