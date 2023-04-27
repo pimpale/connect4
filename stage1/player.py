@@ -47,7 +47,7 @@ class HumanPlayer(Player):
         obs = e.observe(self.player)
         legal_mask = e.legal_mask()
         env.print_obs(obs)
-        print('0 1 2 3 4 5 6 7')
+        print('0 1 2 3 4 5 6')
         print("legal mask:", legal_mask)
         chosen_action = np.int8(input("Choose action: "))
         reward = e.step(chosen_action, self.player)

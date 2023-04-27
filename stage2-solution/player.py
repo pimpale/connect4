@@ -1,13 +1,11 @@
 from abc import ABC, abstractmethod
 import numpy as np
 import scipy.special
-import math
 import scipy.stats
 from scipy.signal import convolve2d
-
+import math
 
 import env
-import network
 
 class Player(ABC):
     def __init__(self) -> None:
@@ -20,40 +18,6 @@ class Player(ABC):
     @abstractmethod
     def name(self) -> str:
         pass
-
-
-class ActorPlayer(Player):
-    def __init__(self, actor:network.Actor, critic:network.Critic, epoch:int, player:env.Player) -> None:
-        self.actor = actor
-        self.critic = critic
-        self.player = player
-        self.epoch = epoch
-
-    def play(self, e:env.Env) -> tuple[env.Observation, np.ndarray, env.Action, env.Reward]:
-        obs = e.observe(self.player)
-
-        device = network.deviceof(self.actor)
-
-        action_probs = self.actor.forward(network.obs_to_tensor(obs, device))[0].to("cpu").detach().numpy()
-    
-        legal_mask = e.legal_mask()
-
-        raw_p = action_probs*legal_mask
-        p = raw_p/np.sum(raw_p)
-
-        chosen_action = env.Action(np.random.choice(len(p), p=p))
-        reward = e.step(chosen_action, self.player)
-    
-        return (
-            obs,
-            action_probs,
-            chosen_action,
-            reward
-        )
-    
-    
-    def name(self) -> str:
-        return f"actor_ckpt_{self.epoch}"
 
 class RandomPlayer(Player):
     def __init__(self, player:env.Player) -> None:
@@ -75,6 +39,31 @@ class RandomPlayer(Player):
     
     def name(self) -> str:
         return "random"
+
+class HumanPlayer(Player):
+    def __init__(self, player:env.Player) -> None:
+        self.player = player
+    
+    def play(self, e:env.Env) -> tuple[env.Observation, np.ndarray, env.Action, env.Reward]:
+        obs = e.observe(self.player)
+        legal_mask = e.legal_mask()
+        env.print_obs(obs)
+        print('0 1 2 3 4 5 6')
+        print("legal mask:", legal_mask)
+        chosen_action = np.int8(input("Choose action: "))
+        reward = e.step(chosen_action, self.player)
+    
+        return (
+            obs,
+            legal_mask,
+            chosen_action,
+            reward
+        )
+    
+    def name(self) -> str:
+        return "human"
+    
+
 
 
 # this heuristic just counts the number of 4-in-a-rows each player has

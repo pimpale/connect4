@@ -2,7 +2,8 @@ from abc import ABC, abstractmethod
 import numpy as np
 import scipy.special
 import scipy.stats
-
+from scipy.signal import convolve2d
+import math
 
 import env
 
@@ -61,3 +62,34 @@ class HumanPlayer(Player):
     
     def name(self) -> str:
         return "human"
+    
+
+# use the minimax algorithm (with alpha beta pruning) to find the best move, searching up to depth
+def minimax(e:env.Env, depth:int, alpha:float, beta:float, player:env.Player) -> tuple[float, env.Action]:
+    pass
+
+class MinimaxPlayer(Player):
+    def __init__(self, player:env.Player, depth:int, randomness:float) -> None:
+        self.player = player
+        self.depth = depth
+        self.randomness = randomness
+    
+    def play(self, e:env.Env) -> tuple[env.Observation, np.ndarray, env.Action, env.Reward]:
+        # introduce some randomness
+        if np.random.random() < self.randomness:
+            return RandomPlayer(self.player).play(e)
+        
+        obs = e.observe(self.player)
+        _,chosen_action = minimax(e, self.depth, -math.inf, math.inf, self.player)
+        action_prob = np.eye(e.dims()[1])[chosen_action]
+        reward = e.step(chosen_action, self.player)
+    
+        return (
+            obs,
+            action_prob,
+            chosen_action,
+            reward
+        )
+    
+    def name(self) -> str:
+        return f"minimax(depth={self.depth},randomness={self.randomness})"

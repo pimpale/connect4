@@ -59,6 +59,33 @@ def state_to_observation(state: State, actor: np.int8) -> Observation:
     return Observation(o)
 
 
+horizontal_kernel = np.array([[ 1, 1, 1, 1]])
+vertical_kernel = np.transpose(horizontal_kernel)
+diag1_kernel = np.eye(4, dtype=np.uint8)
+diag2_kernel = np.fliplr(diag1_kernel)
+detection_kernels = [horizontal_kernel, vertical_kernel, diag1_kernel, diag2_kernel]
+
+
+def is_winner(state:State, actor:Player) -> bool:
+    board = state.board
+    for kernel in detection_kernels:
+        if (convolve2d(board == actor, kernel, mode="valid") == 4).any():
+            return True
+    return False
+
+# returns if the board is completely filled
+def drawn(state:State) -> bool:
+    return 0 not in state.board
+
+# return the reward for the actor
+def state_to_reward(s: State, player: Player) -> Reward:
+    if is_winner(s, player):
+        return np.float32(1.0)
+    elif is_winner(s, opponent(player)):
+        return np.float32(-1.0)
+    else:
+        return np.float32(0.0)
+
 class Env():
     def __init__(
         self,
@@ -94,12 +121,22 @@ class Env():
         return [Action(i) for i in range(self.dims()[1]) if self.legal_mask()[i]]
 
     def step(self, a: Action, actor: Player) -> Reward:
-        ### YOUR CODE HERE: ###
-        # 1. We assume the move is legal. Modify the game board to reflect the move.
-        # 1.5 Add the move to self._moves.
-        # 2. Check if the game is over. If so, set self._game_over and self._winner.
-        # 3. Return the reward for the agent.
-        pass
+
+        for i,row in enumerate(self.state.board):
+            if row[a] == 0:
+                self._moves.append((i,a))
+                row[a] = actor
+                break
+
+        r = state_to_reward(self.state, actor)
+
+        if r != 0:
+            self._game_over = True
+            self._winner = actor
+        elif drawn(self.state):
+            self._game_over = True
+
+        return r
     
     def undo(self):
         if len(self._moves) == 0:
