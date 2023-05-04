@@ -93,6 +93,7 @@ class Env():
     ):
         self._game_over = False
         self._winner = None
+        # contains the location of the last placed square
         self._moves = []
         self.state: State = initial_state(dims)
 
