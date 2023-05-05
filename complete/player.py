@@ -1,10 +1,7 @@
 from abc import ABC, abstractmethod
 import numpy as np
-import scipy.special
 import math
-import scipy.stats
 from scipy.signal import convolve2d
-
 
 import env
 import network

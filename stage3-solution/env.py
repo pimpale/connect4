@@ -1,18 +1,21 @@
 import numpy as np
+import numpy.typing as npt
 from scipy.signal import convolve2d
-from dataclasses import dataclass
 from typing import Any, TypeAlias, Literal
 
-@dataclass
 class State:
     """State of the game"""
     board: np.ndarray[Any, np.dtype[np.int8]]
 
-@dataclass
+    def __init__(self, board:np.ndarray[Any, np.dtype[np.int8]]):
+        self.board = board
+
 class Observation:
     """Observation by a single player of the game"""
     board: np.ndarray[Any, np.dtype[np.int8]]
 
+    def __init__(self, board:np.ndarray[Any, np.dtype[np.int8]]):
+        self.board = board
 
 # Column to place it in
 Action:TypeAlias = np.int8
@@ -65,7 +68,6 @@ diag1_kernel = np.eye(4, dtype=np.uint8)
 diag2_kernel = np.fliplr(diag1_kernel)
 detection_kernels = [horizontal_kernel, vertical_kernel, diag1_kernel, diag2_kernel]
 
-
 def is_winner(state:State, actor:Player) -> bool:
     board = state.board
     for kernel in detection_kernels:
@@ -73,8 +75,10 @@ def is_winner(state:State, actor:Player) -> bool:
             return True
     return False
 
-# returns if the board is completely filled
 def drawn(state:State) -> bool:
+    """
+    Returns if the board is completely filled
+    """
     return 0 not in state.board
 
 # return the reward for the actor
@@ -121,7 +125,6 @@ class Env():
         return [Action(i) for i in range(self.dims()[1]) if self.legal_mask()[i]]
 
     def step(self, a: Action, actor: Player) -> Reward:
-
         for i,row in enumerate(self.state.board):
             if row[a] == 0:
                 self._moves.append((i,a))
