@@ -106,13 +106,6 @@ class Actor(nn.Module):
         output = F.softmax(x, dim=1)
         return output
 
-
-# https://spinningup.openai.com/en/latest/algorithms/vpg.html#key-equations
-# The standard policy gradient is given by:
-# $\nabla_{\theta} \log \pi_{\theta}(a_t|s_t)A^{\pi_{\theta}}(s_t, a_t)$
-# where:
-# * $\pi_{\theta}(a_t|s_t)$ is the current policy's probability to perform action $a_t$ given $s_t$
-# * $A^{\pi_{\theta}}(s_t, a_t)$ is the current value network's guess of the advantage of action $a_t$ at $s_t$
 def compute_policy_gradient_loss(
     # Current policy network's probability of choosing an action
     # in (Batch, Action)
@@ -121,12 +114,38 @@ def compute_policy_gradient_loss(
     # in (Batch, Action)
     a_t: torch.Tensor,
     # Advantage of the chosen action
-    A_pi_theta_given_st_at: torch.Tensor,
+    # in (Batch,)
+    A_pi_theta_st_at: torch.Tensor,
 ) -> torch.Tensor:
+    r"""
+    Computes the policy gradient loss.
+
+
+    https://spinningup.openai.com/en/latest/algorithms/vpg.html#key-equations
+
+    The standard policy gradient is given by the expected value over trajectories of:
+
+    :math:`\sum_{t=0}^{T} \nabla_{\theta} \log \pi_{\theta}(a_t|s_t)A^{\pi_{\theta}}(s_t, a_t)`
+    
+    where:
+    * :math:`\pi_{\theta}(a_t|s_t)` is the current policy's probability to perform action :math:`a_t` given :math:`s_t`
+    * :math:`A^{\pi_{\theta}}(s_t, a_t)` is the current value network's guess of the advantage of action :math:`a_t` at :math:`s_t`
+    """
     # in (Batch,)
-    pi_theta_given_st_at = torch.sum(pi_theta_given_st * a_t, 1)
+    pi_theta_at_given_st = torch.sum(pi_theta_given_st * a_t, 1)
+
+    # Note: this loss has doesn't actually represent whether the action was good or bad
+    # it is a dummy loss, that is only used to compute the gradient
+
+    # Recall that the policy gradient for a single transition (state-action pair) is given by:
+    # $\nabla_{\theta} \log \pi_{\theta}(a_t|s_t)A^{\pi_{\theta}}(s_t, a_t)$
+    # However, it's easier to work with losses, rather than raw gradients.
+    # Therefore we construct a loss, that when differentiated, gives us the policy gradient.
+    # this loss is given by:
+    # $-\log \pi_{\theta}(a_t|s_t)A^{\pi_{\theta}}(s_t, a_t)$
+
     # in (Batch,)
-    policy_loss_at_t = torch.log(pi_theta_given_st_at) * A_pi_theta_given_st_at
+    policy_loss_at_t = -torch.log(pi_theta_at_given_st) * A_pi_theta_st_at
 
     # in (Batch,)
     entropy_at_t = -torch.sum(torch.log(pi_theta_given_st) * pi_theta_given_st, 1)
@@ -147,7 +166,7 @@ def train_policygradient(
     action_batch: list[env.Action],
     advantage_batch: list[env.Advantage],
     value_batch: list[env.Value],
-) -> tuple[float, float]:
+) -> tuple[list[float], list[float]]:
     # assert that the models are on the same device
     assert next(critic.parameters()).device == next(actor.parameters()).device
     # assert that the batch_lengths are the same
@@ -170,7 +189,7 @@ def train_policygradient(
 
     # in (Batch, Action)
     chosen_action_tensor = F.one_hot(
-        torch.tensor(action_batch, device=device), num_classes=actor.board_width
+        torch.tensor(action_batch).to(device).long(), num_classes=actor.board_width
     )
 
     # in (Batch,)
@@ -193,7 +212,7 @@ def train_policygradient(
     actor_optimizer.step()
 
     # return the respective losses
-    return (float(actor_loss), float(critic_loss))
+    return ([float(actor_loss)], [float(critic_loss)])
 
 
 def compute_ppo_loss(
@@ -217,7 +236,7 @@ def compute_ppo_loss(
     likelihood_ratio = pi_theta_given_st_at / pi_thetak_given_st_at
 
     # in (Batch,)
-    ppo2loss_at_t = torch.minimum(
+    ppo2loss_at_t = -torch.minimum(
         likelihood_ratio * A_pi_theta_given_st_at,
         torch.clip(likelihood_ratio, 1 - PPO_EPS, 1 + PPO_EPS) * A_pi_theta_given_st_at,
     )
@@ -225,7 +244,8 @@ def compute_ppo_loss(
     # in (Batch,)
     entropy_at_t = -torch.sum(torch.log(pi_theta_given_st) * pi_theta_given_st, 1)
 
-    total_loss_at_t = -ppo2loss_at_t - 0.1 * entropy_at_t
+    # we reward entropy, since excessive certainty indicate the model is 'overfitting'
+    total_loss_at_t = ppo2loss_at_t - 0.1 * entropy_at_t
 
     # we take the average loss over all examples
     return total_loss_at_t.mean()

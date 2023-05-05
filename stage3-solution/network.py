@@ -10,24 +10,23 @@ BOARD_CONV_FILTERS = 64
 
 ACTOR_LR = 1e-4  # Lower lr stabilises training greatly
 CRITIC_LR = 1e-4  # Lower lr stabilises training greatly
-GAMMA = 0.80
+GAMMA = 0.80  # Discount factor for advantage estimation and reward discounting
+
 
 # (Channel, Width, Height)
-
-
 def reshape_board(o: env.Observation) -> np.ndarray:
     return np.stack([o.board == 1, o.board == 2])
 
+
 # output in (Batch, Channel, Width, Height)
-
-
-def obs_batch_to_tensor(o_batch: list[env.Observation], device: torch.device) -> torch.Tensor:
+def obs_batch_to_tensor(
+    o_batch: list[env.Observation], device: torch.device
+) -> torch.Tensor:
     # Convert state batch into correct format
     return torch.from_numpy(np.stack([reshape_board(o) for o in o_batch])).to(device)
 
+
 # output in (Batch, Channel, Width, Height)
-
-
 def obs_to_tensor(o: env.Observation, device: torch.device) -> torch.Tensor:
     # we need to add a batch axis and then convert into a tensor
     return torch.from_numpy(np.stack([reshape_board(o)])).to(device)
@@ -46,8 +45,9 @@ class Critic(nn.Module):
 
         self.conv1 = nn.Conv2d(2, BOARD_CONV_FILTERS, kernel_size=3, padding=0)
         self.conv2 = nn.Conv2d(
-            BOARD_CONV_FILTERS, BOARD_CONV_FILTERS, kernel_size=3, padding=0)
-        self.fc1 = nn.Linear((width-4)*(height-4)*BOARD_CONV_FILTERS, 512)
+            BOARD_CONV_FILTERS, BOARD_CONV_FILTERS, kernel_size=3, padding=0
+        )
+        self.fc1 = nn.Linear((width - 4) * (height - 4) * BOARD_CONV_FILTERS, 512)
         self.fc2 = nn.Linear(512, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -80,8 +80,9 @@ class Actor(nn.Module):
 
         self.conv1 = nn.Conv2d(2, BOARD_CONV_FILTERS, kernel_size=3, padding=0)
         self.conv2 = nn.Conv2d(
-            BOARD_CONV_FILTERS, BOARD_CONV_FILTERS, kernel_size=3, padding=0)
-        self.fc1 = nn.Linear((width-4)*(height-4)*BOARD_CONV_FILTERS, 512)
+            BOARD_CONV_FILTERS, BOARD_CONV_FILTERS, kernel_size=3, padding=0
+        )
+        self.fc1 = nn.Linear((width - 4) * (height - 4) * BOARD_CONV_FILTERS, 512)
         self.fc2 = nn.Linear(512, width)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -103,13 +104,6 @@ class Actor(nn.Module):
         output = F.softmax(x, dim=1)
         return output
 
-# https://spinningup.openai.com/en/latest/algorithms/vpg.html#key-equations
-# The standard policy gradient is given by:
-# $\nabla_{\theta} \log \pi_{\theta}(a_t|s_t)A^{\pi_{\theta}}(s_t, a_t)$
-# where:
-# * $\pi_{\theta}(a_t|s_t)$ is the current policy's probability to perform action $a_t$ given $s_t$
-# * $A^{\pi_{\theta}}(s_t, a_t)$ is the current value network's guess of the advantage of action $a_t$ at $s_t$
-
 
 def compute_policy_gradient_loss(
     # Current policy network's probability of choosing an action
@@ -119,19 +113,44 @@ def compute_policy_gradient_loss(
     # in (Batch, Action)
     a_t: torch.Tensor,
     # Advantage of the chosen action
-    A_pi_theta_given_st_at: torch.Tensor,
+    # in (Batch,)
+    A_pi_theta_st_at: torch.Tensor,
 ) -> torch.Tensor:
+    r"""
+    Computes the policy gradient loss.
+
+
+    https://spinningup.openai.com/en/latest/algorithms/vpg.html#key-equations
+
+    The standard policy gradient is given by the expected value over trajectories of:
+
+    :math:`\sum_{t=0}^{T} \nabla_{\theta} \log \pi_{\theta}(a_t|s_t)A^{\pi_{\theta}}(s_t, a_t)`
+    
+    where:
+    * :math:`\pi_{\theta}(a_t|s_t)` is the current policy's probability to perform action :math:`a_t` given :math:`s_t`
+    * :math:`A^{\pi_{\theta}}(s_t, a_t)` is the current value network's guess of the advantage of action :math:`a_t` at :math:`s_t`
+    """
     # in (Batch,)
-    pi_theta_given_st_at = torch.sum(pi_theta_given_st*a_t, 1)
-    # in (Batch,)
-    policy_loss_at_t = torch.log(pi_theta_given_st_at)*A_pi_theta_given_st_at
+    pi_theta_at_given_st = torch.sum(pi_theta_given_st * a_t, 1)
+
+    # Note: this loss has doesn't actually represent whether the action was good or bad
+    # it is a dummy loss, that is only used to compute the gradient
+
+    # Recall that the policy gradient for a single transition (state-action pair) is given by:
+    # $\nabla_{\theta} \log \pi_{\theta}(a_t|s_t)A^{\pi_{\theta}}(s_t, a_t)$
+    # However, it's easier to work with losses, rather than raw gradients.
+    # Therefore we construct a loss, that when differentiated, gives us the policy gradient.
+    # this loss is given by:
+    # $-\log \pi_{\theta}(a_t|s_t)A^{\pi_{\theta}}(s_t, a_t)$
 
     # in (Batch,)
-    entropy_at_t = -torch.sum(torch.log(pi_theta_given_st)
-                              * pi_theta_given_st, 1)
+    policy_loss_at_t = -torch.log(pi_theta_at_given_st) * A_pi_theta_st_at
+
+    # in (Batch,)
+    entropy_at_t = -torch.sum(torch.log(pi_theta_given_st) * pi_theta_given_st, 1)
 
     # we reward entropy, since excessive certainty indicate the model is 'overfitting'
-    loss_at_t = policy_loss_at_t - 0.1*entropy_at_t
+    loss_at_t = policy_loss_at_t - 0.1 * entropy_at_t
 
     # we take the average loss over all examples
     return loss_at_t.mean()
@@ -146,11 +165,7 @@ def train_policygradient(
     action_batch: list[env.Action],
     advantage_batch: list[env.Advantage],
     value_batch: list[env.Value],
-) -> tuple[float, float]:
-    """
-    This function trains both the Actor and the Critic.
-     
-    """
+) -> tuple[list[float], list[float]]:
     # assert that the models are on the same device
     assert next(critic.parameters()).device == next(actor.parameters()).device
     # assert that the batch_lengths are the same
@@ -168,11 +183,13 @@ def train_policygradient(
 
     # in (Batch,)
     true_value_batch_tensor = torch.tensor(
-        value_batch, dtype=torch.float32, device=device)
+        value_batch, dtype=torch.float32, device=device
+    )
 
     # in (Batch, Action)
-    chosen_action_tensor = F.one_hot(torch.tensor(
-        action_batch, device=device), num_classes=actor.board_width)
+    chosen_action_tensor = F.one_hot(
+        torch.tensor(action_batch).to(device).long(), num_classes=actor.board_width
+    )
 
     # in (Batch,)
     advantage_batch_tensor = torch.tensor(advantage_batch).to(device)
@@ -188,12 +205,13 @@ def train_policygradient(
     actor_optimizer.zero_grad()
     action_probs = actor.forward(observation_batch_tensor)
     actor_loss = compute_policy_gradient_loss(
-        action_probs, chosen_action_tensor, advantage_batch_tensor)
+        action_probs, chosen_action_tensor, advantage_batch_tensor
+    )
     actor_loss.backward()
     actor_optimizer.step()
 
     # return the respective losses
-    return (float(actor_loss), float(critic_loss))
+    return ([float(actor_loss)], [float(critic_loss)])
 
 
 def compute_advantage(
@@ -203,7 +221,7 @@ def compute_advantage(
 ) -> list[env.Advantage]:
     """
     Computes advantage using GAE.
-    
+
     See here for derivation: https://arxiv.org/abs/1506.02438
 
     Note: In this particular case (zero sum game with guaranteed win, loss, or draw)
@@ -220,24 +238,31 @@ def compute_advantage(
 
     # calculate the value of the state at the end
     last_obs = obs_to_tensor(
-        trajectory_observations[-1], next(critic.parameters()).device)
+        trajectory_observations[-1], next(critic.parameters()).device
+    )
     last_obs_value = critic.forward(last_obs)[0]
 
     trajectory_advantages[-1] = last_obs_value + trajectory_rewards[-1]
 
     # Use GAMMA to decay the advantage
     for t in reversed(range(trajectory_len - 1)):
-        trajectory_advantages[t] = trajectory_rewards[t] + \
-            GAMMA * trajectory_advantages[t + 1]
+        trajectory_advantages[t] = (
+            trajectory_rewards[t] + GAMMA * trajectory_advantages[t + 1]
+        )
 
     return list(trajectory_advantages)
-
-# computes what the critic network should have predicted
 
 
 def compute_value(
     trajectory_rewards: list[env.Reward],
 ) -> list[env.Value]:
+    """
+    Computes the gamma discounted reward-to-go for each state in the trajectory.
+
+    Note: In this particular case, we only get rewards at the end of the game,
+    but this function assumes that rewards may be given at each step.
+    """
+
     trajectory_len = len(trajectory_rewards)
 
     v_batch = np.zeros(trajectory_len)
