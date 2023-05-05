@@ -114,7 +114,7 @@ class Env():
     def dims(self) -> tuple[int, int]:
         return self.state.board.shape
 
-    def legal_mask(self) -> np.ndarray[Any, np.dtype[np.bool8]]:
+    def legal_mask(self) -> np.ndarray[Any, np.dtype[np.bool_]]:
         return self.state.board[-1] == 0
 
     def legal_actions(self) -> list[Action]:
