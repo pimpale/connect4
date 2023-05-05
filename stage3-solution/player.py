@@ -9,13 +9,12 @@ from scipy.signal import convolve2d
 import env
 import network
 
-
 class Player(ABC):
     def __init__(self) -> None:
         super().__init__()
-
+    
     @abstractmethod
-    def play(self, e: env.Env) -> tuple[env.Observation, env.Action, env.Reward]:
+    def play(self, e:env.Env) -> tuple[env.Observation, np.ndarray, env.Action, env.Reward]:
         pass
 
     @abstractmethod
@@ -24,62 +23,62 @@ class Player(ABC):
 
 
 class ActorPlayer(Player):
-    def __init__(
-        self,
-        actor: network.Actor,
-        critic: network.Critic,
-        epoch: int,
-        player: env.Player,
-    ) -> None:
+    def __init__(self, actor:network.Actor, critic:network.Critic, epoch:int, player:env.Player) -> None:
         self.actor = actor
         self.critic = critic
         self.player = player
         self.epoch = epoch
 
-    def play(self, e: env.Env) -> tuple[env.Observation, env.Action, env.Reward]:
+    def play(self, e:env.Env) -> tuple[env.Observation, np.ndarray, env.Action, env.Reward]:
         obs = e.observe(self.player)
 
         device = network.deviceof(self.actor)
 
-        action_probs = (
-            self.actor.forward(network.obs_to_tensor(obs, device))[0]
-            .detach()
-            .cpu()
-            .numpy()
-        )
-
+        action_probs = self.actor.forward(network.obs_to_tensor(obs, device))[0].to("cpu").detach().numpy()
+    
         legal_mask = e.legal_mask()
 
-        raw_p = action_probs * legal_mask
-        p = raw_p / np.sum(raw_p)
+        raw_p = action_probs*legal_mask
+        p = raw_p/np.sum(raw_p)
 
         chosen_action = env.Action(np.random.choice(len(p), p=p))
         reward = e.step(chosen_action, self.player)
-
-        return (obs, chosen_action, reward)
-
+    
+        return (
+            obs,
+            action_probs,
+            chosen_action,
+            reward
+        )
+    
+    
     def name(self) -> str:
         return f"actor_ckpt_{self.epoch}"
 
-
 class RandomPlayer(Player):
-    def __init__(self, player: env.Player) -> None:
+    def __init__(self, player:env.Player) -> None:
         self.player = player
-
-    def play(self, e: env.Env) -> tuple[env.Observation, env.Action, env.Reward]:
+    
+    def play(self, e:env.Env) -> tuple[env.Observation, np.ndarray, env.Action, env.Reward]:
         obs = e.observe(self.player)
         legal_mask = e.legal_mask()
-        p = legal_mask / np.sum(legal_mask)
-        chosen_action = env.Action(np.random.choice(len(p), p=p))
+        action_prob = scipy.special.softmax(np.random.random(size=len(legal_mask)))
+        chosen_action: env.Action = np.argmax(action_prob*legal_mask)
         reward = e.step(chosen_action, self.player)
-        return (obs, chosen_action, reward)
-
+    
+        return (
+            obs,
+            action_prob,
+            chosen_action,
+            reward
+        )
+    
     def name(self) -> str:
         return "random"
 
 
 # this heuristic just counts the number of 4-in-a-rows each player has
-def heuristic(e: env.Env) -> float:
+def heuristic(e:env.Env) -> float:
     player1_valid = e.observe(env.PLAYER1).board != env.PLAYER2
     player2_valid = e.observe(env.PLAYER2).board != env.PLAYER1
 
@@ -94,22 +93,20 @@ def heuristic(e: env.Env) -> float:
 
 
 # use the minimax algorithm (with alpha beta pruning) to find the best move, searching up to depth
-def minimax(
-    e: env.Env, depth: int, alpha: float, beta: float, player: env.Player
-) -> tuple[float, env.Action]:
+def minimax(e:env.Env, depth:int, alpha:float, beta:float, player:env.Player) -> tuple[float, env.Action]:
     winner = e.winner()
     if winner is not None:
         reward = math.inf if winner == env.PLAYER1 else -math.inf
         return reward, env.Action(0)
     if depth == 0:
         return heuristic(e), env.Action(0)
-
+    
     if player == env.PLAYER1:
         best_score = -math.inf
         best_action = env.Action(0)
         for action in e.legal_actions():
             e.step(action, player)
-            score, _ = minimax(e, depth - 1, alpha, beta, env.PLAYER2)
+            score,_ = minimax(e, depth-1, alpha, beta, env.PLAYER2)
             e.undo()
             if score > best_score:
                 best_score = score
@@ -123,7 +120,7 @@ def minimax(
         best_action = env.Action(0)
         for action in e.legal_actions():
             e.step(action, player)
-            score, _ = minimax(e, depth - 1, alpha, beta, env.PLAYER1)
+            score,_ = minimax(e, depth-1, alpha, beta, env.PLAYER1)
             e.undo()
             if score < best_score:
                 best_score = score
@@ -133,23 +130,28 @@ def minimax(
                 break
         return best_score, best_action
 
-
 class MinimaxPlayer(Player):
-    def __init__(self, player: env.Player, depth: int, randomness: float) -> None:
+    def __init__(self, player:env.Player, depth:int, randomness:float) -> None:
         self.player = player
         self.depth = depth
         self.randomness = randomness
-
-    def play(self, e: env.Env) -> tuple[env.Observation, env.Action, env.Reward]:
+    
+    def play(self, e:env.Env) -> tuple[env.Observation, np.ndarray, env.Action, env.Reward]:
         # introduce some randomness
         if np.random.random() < self.randomness:
             return RandomPlayer(self.player).play(e)
-
+        
         obs = e.observe(self.player)
-        _, chosen_action = minimax(e, self.depth, -math.inf, math.inf, self.player)
+        _,chosen_action = minimax(e, self.depth, -math.inf, math.inf, self.player)
+        action_prob = np.eye(e.dims()[1])[chosen_action]
         reward = e.step(chosen_action, self.player)
-
-        return (obs, chosen_action, reward)
-
+    
+        return (
+            obs,
+            action_prob,
+            chosen_action,
+            reward
+        )
+    
     def name(self) -> str:
         return f"minimax(depth={self.depth},randomness={self.randomness})"
