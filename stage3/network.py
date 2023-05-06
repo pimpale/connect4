@@ -35,7 +35,6 @@ def obs_to_tensor(o: env.Observation, device: torch.device) -> torch.Tensor:
 def deviceof(m: nn.Module) -> torch.device:
     return next(m.parameters()).device
 
-
 class Actor(nn.Module):
     def __init__(self, width: int, height: int):
         super(Actor, self).__init__()
@@ -43,67 +42,48 @@ class Actor(nn.Module):
         self.board_width = width
         self.board_height = height
 
-        self.conv1 = nn.Conv2d(2, BOARD_CONV_FILTERS, kernel_size=3, padding=0)
-        self.conv2 = nn.Conv2d(
-            BOARD_CONV_FILTERS, BOARD_CONV_FILTERS, kernel_size=3, padding=0
-        )
-        self.fc1 = nn.Linear((width - 4) * (height - 4) * BOARD_CONV_FILTERS, 512)
-        self.fc2 = nn.Linear(512, width)
+        # ============ PART 1 ============
+        # TODO: please initialize the following layers:
+        # Conv1: 2 input channels, BOARD_CONV_FILTERS output channels, kernel_size 3, input size (width, height), output size (width-2, height-2),  
+        # Conv2: BOARD_CONV_FILTERS input channels, BOARD_CONV_FILTERS output channels, input size (width -2, height -2), output size (width-4, height-4)
+        # Fc1: Linear Layer, input size = (width-4)*(height-4)*BOARD_CONV_FILTERS, output size = 512
+        # Fc2: Linear Layer, input size = 512, output size = width
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # cast to float32
         # x in (Batch, Channels, Width, Height)
         x = x.to(torch.float32)
-        # apply convolutions
-        x = self.conv1(x)
-        x = F.relu(x)
-        x = self.conv2(x)
-        x = F.relu(x)
-        # flatten everything except for batch
-        x = torch.flatten(x, 1)
-        # apply fully connected layers
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.fc2(x)
-        # output in (Batch, Width)
-        output = F.softmax(x, dim=1)
-        return output
+       # ============ PART 1 ============
+        # TODO: please compute the output by running the x through the following layers. 
+        # Conv1 -> Relu -> Conv2 -> Relu -> Flatten -> Fc1 -> Relu -> Fc2 -> Softmax
+        # Make sure the output has dimensions (Batch, Width)
+        pass
+
 
 
 class Critic(nn.Module):
     def __init__(self, width: int, height: int):
         super(Critic, self).__init__()
-
         self.board_width = width
         self.board_height = height
 
-        self.conv1 = nn.Conv2d(2, BOARD_CONV_FILTERS, kernel_size=3, padding=0)
-        self.conv2 = nn.Conv2d(
-            BOARD_CONV_FILTERS, BOARD_CONV_FILTERS, kernel_size=3, padding=0
-        )
-        self.fc1 = nn.Linear((width - 4) * (height - 4) * BOARD_CONV_FILTERS, 512)
-        self.fc2 = nn.Linear(512, 1)
+        # ============ PART 2 ============
+        # TODO: please initialize the following layers:
+        # Conv1: 2 input channels, BOARD_CONV_FILTERS output channels, kernel_size 3, input size (width, height), output size (width-2, height-2),  
+        # Conv2: BOARD_CONV_FILTERS input channels, BOARD_CONV_FILTERS output channels, input size (width -2, height -2), output size (width-4, height-4)
+        # Fc1: Linear Layer, input size = (width-4)*(height-4)*BOARD_CONV_FILTERS, output size = 512
+        # Fc2: Linear Layer, input size = 512, output size = 1
+        pass
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # cast to float32
         # x in (Batch, Width, Height)
         x = x.to(torch.float32)
-        # apply convolutions
-        x = self.conv1(x)
-        x = F.relu(x)
-        x = self.conv2(x)
-        x = F.relu(x)
-        # flatten everything except for batch
-        x = torch.flatten(x, 1)
-        # fully connected layers
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.fc2(x)
-        # delete extra dimension
-        # output in (Batch,)
-        output = x.view((x.shape[0]))
-        return output
-
+        # ============ PART 2 ============
+        # TODO: please compute the output by running the x through the following layers. 
+        # Conv1 -> Relu -> Conv2 -> Relu -> Fc1 -> Relu -> Fc2
+        # Reshape the output to have dimensions (Batch,)
+        pass
 
 def compute_policy_gradient_loss(
     # Current policy network's probability of choosing an action
@@ -125,35 +105,21 @@ def compute_policy_gradient_loss(
     The standard policy gradient is given by the expected value over trajectories of:
 
     :math:`\sum_{t=0}^{T} \nabla_{\theta} \log \pi_{\theta}(a_t|s_t)A^{\pi_{\theta}}(s_t, a_t)`
-
+    
     where:
     * :math:`\pi_{\theta}(a_t|s_t)` is the current policy's probability to perform action :math:`a_t` given :math:`s_t`
     * :math:`A^{\pi_{\theta}}(s_t, a_t)` is the current value network's guess of the advantage of action :math:`a_t` at :math:`s_t`
     """
-    # in (Batch,)
-    pi_theta_at_given_st = torch.sum(pi_theta_given_st * a_t, 1)
+    # ======== PART 5 ========= 
+    # TODO: please implement this function
+    # first, find the loss whose gradient is equal to the policy gradient.
+    # then, find the entropy of the action
+    # in order to provide an incentive for exploration, set the final loss to
+    # policy_loss - 0.1*entropy
+    # return the mean loss.
+    # The output should have shape (1,) 
 
-    # Note: this loss has doesn't actually represent whether the action was good or bad
-    # it is a dummy loss, that is only used to compute the gradient
-
-    # Recall that the policy gradient for a single transition (state-action pair) is given by:
-    # $\nabla_{\theta} \log \pi_{\theta}(a_t|s_t)A^{\pi_{\theta}}(s_t, a_t)$
-    # However, it's easier to work with losses, rather than raw gradients.
-    # Therefore we construct a loss, that when differentiated, gives us the policy gradient.
-    # this loss is given by:
-    # $-\log \pi_{\theta}(a_t|s_t)A^{\pi_{\theta}}(s_t, a_t)$
-
-    # in (Batch,)
-    policy_loss_at_t = -torch.log(pi_theta_at_given_st) * A_pi_theta_st_at
-
-    # in (Batch,)
-    entropy_at_t = -torch.sum(torch.log(pi_theta_given_st) * pi_theta_given_st, 1)
-
-    # we reward entropy, since excessive certainty indicate the model is 'overfitting'
-    loss_at_t = policy_loss_at_t - 0.1 * entropy_at_t
-
-    # we take the average loss over all examples
-    return loss_at_t.mean()
+    pass
 
 
 def train_policygradient(
@@ -187,6 +153,7 @@ def train_policygradient(
     )
 
     # in (Batch, Action)
+    # this is a one hot encoding of the chosen action.
     chosen_action_tensor = F.one_hot(
         torch.tensor(action_batch).to(device).long(), num_classes=actor.board_width
     )
@@ -195,20 +162,15 @@ def train_policygradient(
     advantage_batch_tensor = torch.tensor(advantage_batch).to(device)
 
     # train critic
-    critic_optimizer.zero_grad()
-    pred_value_batch_tensor = critic.forward(observation_batch_tensor)
-    critic_loss = F.mse_loss(pred_value_batch_tensor, true_value_batch_tensor)
-    critic_loss.backward()
-    critic_optimizer.step()
+    # ======== PART 6 ========
+    # TODO: please train the critic.
+    # the critic loss should be the MSE loss between the critic prediction and the true value
+
 
     # train actor
-    actor_optimizer.zero_grad()
-    action_probs = actor.forward(observation_batch_tensor)
-    actor_loss = compute_policy_gradient_loss(
-        action_probs, chosen_action_tensor, advantage_batch_tensor
-    )
-    actor_loss.backward()
-    actor_optimizer.step()
+    # ======== PART 6 ========
+    # TODO: please train the actor 
+    # the actor loss should be the loss specified in compute_policy_gradient_loss 
 
     # return the respective losses
     return ([float(actor_loss)], [float(critic_loss)])
@@ -226,31 +188,18 @@ def compute_advantage(
 
     Note: In this particular case (zero sum game with guaranteed win, loss, or draw)
     we actually don't need the value estimator, as we can derive the true value from our knowledge if we won or lost.
-    However, I keep the advantage function as specified in the paper for generality.
+    However, we keep the advantage function as specified in the paper for generality.
     """
 
-    trajectory_len = len(trajectory_rewards)
-
-    assert len(trajectory_observations) == trajectory_len
-    assert len(trajectory_rewards) == trajectory_len
-
-    trajectory_advantages = np.zeros(trajectory_len)
-
-    # calculate the value of the state at the end
-    last_obs = obs_to_tensor(
-        trajectory_observations[-1], next(critic.parameters()).device
-    )
-    last_obs_value = critic.forward(last_obs)[0]
-
-    trajectory_advantages[-1] = last_obs_value + trajectory_rewards[-1]
-
-    # Use GAMMA to decay the advantage
-    for t in reversed(range(trajectory_len - 1)):
-        trajectory_advantages[t] = (
-            trajectory_rewards[t] + GAMMA * trajectory_advantages[t + 1]
-        )
-
-    return list(trajectory_advantages)
+    # ======== PART 4 =========
+    # TODO: please implement this function
+    # trajectory_rewards is a list of rewards for each step in the trajectory
+    # trajectory_observations is a list of observations for each step in the trajectory
+    # assume that we may get a reward at each step
+    # assume tht the length of trajectory_rewards is the same as the length of trajectory_observations
+    # the output should be a list of advantages with the same length as trajectory_rewards
+    # the value at each step should be the GAE advantage from that step
+    pass
 
 
 def compute_value(
@@ -263,14 +212,10 @@ def compute_value(
     but this function assumes that rewards may be given at each step.
     """
 
-    trajectory_len = len(trajectory_rewards)
-
-    v_batch = np.zeros(trajectory_len)
-
-    v_batch[-1] = trajectory_rewards[-1]
-
-    # Use GAMMA to decay the advantage
-    for t in reversed(range(trajectory_len - 1)):
-        v_batch[t] = trajectory_rewards[t] + GAMMA * v_batch[t + 1]
-
-    return list(v_batch)
+    # ======== PART 3 =========
+    # TODO: please implement this function
+    # trajectory_rewards is a list of rewards for each step in the trajectory
+    # assume that we may get a reward at each step
+    # the output should be a list of values with the same length as trajectory_rewards
+    # the value at each step should be the GAMMA discounted reward-to-go from that step
+    pass

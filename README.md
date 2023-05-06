@@ -8,9 +8,9 @@ In [Stage1](#Stage1) we will create a simple connect4 environment, a random agen
 
 In [Stage2](#Stage2) we will create a minimax agent.
 
-In [Stage3](#Stage3) we will define the kinds of features the connect4 agent sees, and create a simple actor and critic.
+In [Stage3](#Stage3) we will create and train a simple actor and critic.
 
-In [Stage4](#Stage4) we will calculate advantages using GAE (Generalized Advantage Estimation), define the training loop, and train the agent using PPO (Proximal Policy Optimization).
+In [Stage4](#Stage4) we will train the agent using PPO (Proximal Policy Optimization).
 
 ## Stage1
 
@@ -53,17 +53,34 @@ Note: We're purposely not implementing PPO yet. That comes in stage 4. Additiona
 ### 1. Actor Definition
 Go into `network.py` and fill out the missing sections in the `Actor` class.
 
+Instructions are provided in the file.
+
 ### 2. Critic Definition
 Go into `network.py` and fill out the missing sections in the `Critic` class.
+
+Instructions are provided in the file.
 
 ### 3. Computing Value
 Go into `network.py` and fill out the rest of the `compute_value` function.
 
+You might want to consult the following resources:
+- https://spinningup.openai.com/en/latest/spinningup/rl_intro3.html#implementing-reward-to-go-policy-gradient
+
 ### 4. Computing Advantage
 Go into `network.py` and fill out the rest of the `compute_advantage` function.
+
+You might want to consult the following resources:
+- https://arxiv.org/abs/1506.02438
 
 ### 5. Defining Policy Gradient Loss
 Go into `network.py` and fill out the rest of the `compute_policy_gradient_loss` function.
 
+You might want to consult the following resources:
+- https://spinningup.openai.com/en/latest/spinningup/rl_intro3.html#implementing-the-simplest-policy-gradient
+   
+   - Especially section 2, Making the Loss Function.
+
 ### 6. Training Actor and Critic
 Go into `network.py` and fill out the `train_policygradient` function.
+
+Instructions are provided in the file.

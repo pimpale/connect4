@@ -66,6 +66,7 @@ class HumanPlayer(Player):
 
 # use the minimax algorithm (with alpha beta pruning) to find the best move, searching up to depth
 def minimax(e:env.Env, depth:int, alpha:float, beta:float, player:env.Player) -> tuple[float, env.Action]:
+    # TODO: Insert your code here
     pass
 
 class MinimaxPlayer(Player):
