@@ -117,7 +117,7 @@ def compute_policy_gradient_loss(
     A_pi_theta_st_at: torch.Tensor,
 ) -> torch.Tensor:
     r"""
-    Computes the policy gradient loss.
+    Computes the policy gradient loss for a vector of examples, and reduces with mean.
 
 
     https://spinningup.openai.com/en/latest/algorithms/vpg.html#key-equations
@@ -130,6 +130,8 @@ def compute_policy_gradient_loss(
     * :math:`\pi_{\theta}(a_t|s_t)` is the current policy's probability to perform action :math:`a_t` given :math:`s_t`
     * :math:`A^{\pi_{\theta}}(s_t, a_t)` is the current value network's guess of the advantage of action :math:`a_t` at :math:`s_t`
     """
+
+    # here, the multiplication and sum is in order to extract the 
     # in (Batch,)
     pi_theta_at_given_st = torch.sum(pi_theta_given_st * a_t, 1)
 
@@ -144,16 +146,16 @@ def compute_policy_gradient_loss(
     # $-\log \pi_{\theta}(a_t|s_t)A^{\pi_{\theta}}(s_t, a_t)$
 
     # in (Batch,)
-    policy_loss_at_t = -torch.log(pi_theta_at_given_st) * A_pi_theta_st_at
+    policy_loss_per_example = -torch.log(pi_theta_at_given_st) * A_pi_theta_st_at
 
     # in (Batch,)
-    entropy_at_t = -torch.sum(torch.log(pi_theta_given_st) * pi_theta_given_st, 1)
+    entropy_per_example = -torch.sum(torch.log(pi_theta_given_st) * pi_theta_given_st, 1)
 
     # we reward entropy, since excessive certainty indicate the model is 'overfitting'
-    loss_at_t = policy_loss_at_t - 0.1 * entropy_at_t
+    loss_per_example = policy_loss_per_example - 0.1 * entropy_per_example
 
     # we take the average loss over all examples
-    return loss_at_t.mean()
+    return loss_per_example.mean()
 
 
 def train_policygradient(

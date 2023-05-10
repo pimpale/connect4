@@ -97,7 +97,7 @@ def compute_policy_gradient_loss(
     A_pi_theta_st_at: torch.Tensor,
 ) -> torch.Tensor:
     r"""
-    Computes the policy gradient loss.
+    Computes the policy gradient loss for a vector of examples, and reduces with mean.
 
 
     https://spinningup.openai.com/en/latest/algorithms/vpg.html#key-equations

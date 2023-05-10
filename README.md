@@ -84,3 +84,22 @@ You might want to consult the following resources:
 Go into `network.py` and fill out the `train_policygradient` function.
 
 Instructions are provided in the file.
+
+## Stage4
+
+In stage 4, we implement PPO (Proximal Policy Optimization) to train our agent.
+Compared to stage 3, this stage is fairly simple.
+
+Here's the list of the parts we'll add in this stage:
+1. PPO Loss
+2. Training PPO
+
+### 1. PPO Loss
+Go into `network.py` and fill out the `compute_ppo_loss` function.
+
+Instructions are provided in the file.
+
+### 2. Training PPO
+Go into `network.py` and fill out the `train_ppo` function.
+
+Instructions are provided in the file.
