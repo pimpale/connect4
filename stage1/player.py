@@ -11,7 +11,7 @@ class Player(ABC):
         super().__init__()
     
     @abstractmethod
-    def play(self, e:env.Env) -> tuple[env.Observation, np.ndarray, env.Action, env.Reward]:
+    def play(self, e:env.Env) -> tuple[env.Observation, env.Action, env.Reward]:
         pass
 
     @abstractmethod
@@ -22,7 +22,7 @@ class RandomPlayer(Player):
     def __init__(self, player:env.Player) -> None:
         self.player = player
     
-    def play(self, e:env.Env) -> tuple[env.Observation, np.ndarray, env.Action, env.Reward]:
+    def play(self, e:env.Env) -> tuple[env.Observation, env.Action, env.Reward]:
         obs = e.observe(self.player)
         legal_mask = e.legal_mask()
         action_prob = scipy.special.softmax(np.random.random(size=len(legal_mask)))
@@ -31,7 +31,6 @@ class RandomPlayer(Player):
     
         return (
             obs,
-            action_prob,
             chosen_action,
             reward
         )
@@ -43,7 +42,7 @@ class HumanPlayer(Player):
     def __init__(self, player:env.Player) -> None:
         self.player = player
     
-    def play(self, e:env.Env) -> tuple[env.Observation, np.ndarray, env.Action, env.Reward]:
+    def play(self, e:env.Env) -> tuple[env.Observation, env.Action, env.Reward]:
         obs = e.observe(self.player)
         legal_mask = e.legal_mask()
         env.print_obs(obs)
@@ -54,7 +53,6 @@ class HumanPlayer(Player):
     
         return (
             obs,
-            legal_mask,
             chosen_action,
             reward
         )
