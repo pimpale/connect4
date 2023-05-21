@@ -155,7 +155,6 @@ class MinimaxPlayer(Player):
         return f"minimax(depth={self.depth},randomness={self.randomness})"
 
 
-
 class HumanPlayer(Player):
     def __init__(self, player: env.Player) -> None:
         self.player = player
