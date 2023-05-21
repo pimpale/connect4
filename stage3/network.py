@@ -182,17 +182,13 @@ def compute_advantage(
     trajectory_rewards: list[env.Reward],
 ) -> list[env.Advantage]:
     """
-    Computes advantage using GAE.
+    Computes advantage using GAE(GAMMA, 1).
 
     See here for derivation: https://arxiv.org/abs/1506.02438
-
-    Note: In this particular case (zero sum game with guaranteed win, loss, or draw)
-    we actually don't need the value estimator, as we can derive the true value from our knowledge if we won or lost.
-    However, we keep the advantage function as specified in the paper for generality.
     """
 
     # ======== PART 4 =========
-    # TODO: please implement this function
+    # TODO: please implement this function (use Equation 18 from https://arxiv.org/abs/1506.02438)
     # trajectory_rewards is a list of rewards for each step in the trajectory
     # trajectory_observations is a list of observations for each step in the trajectory
     # assume that we may get a reward at each step

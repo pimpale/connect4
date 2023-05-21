@@ -70,7 +70,7 @@ You might want to consult the following resources:
 Go into `network.py` and fill out the rest of the `compute_advantage` function.
 
 You might want to consult the following resources:
-- https://arxiv.org/abs/1506.02438
+- https://arxiv.org/abs/1506.02438 (Equation 18 in specific)
 
 ### 5. Defining Policy Gradient Loss
 Go into `network.py` and fill out the rest of the `compute_policy_gradient_loss` function.
