@@ -153,3 +153,22 @@ class MinimaxPlayer(Player):
 
     def name(self) -> str:
         return f"minimax(depth={self.depth},randomness={self.randomness})"
+
+
+class HumanPlayer(Player):
+    def __init__(self, player: env.Player) -> None:
+        self.player = player
+
+    def play(self, e: env.Env) -> tuple[env.Observation, env.Action, env.Reward]:
+        obs = e.observe(self.player)
+        legal_mask = e.legal_mask()
+        env.print_obs(obs)
+        print("0 1 2 3 4 5 6")
+        print("legal mask:", legal_mask)
+        chosen_action = np.int8(input("Choose action: "))
+        reward = e.step(chosen_action, self.player)
+
+        return (obs, chosen_action, reward)
+
+    def name(self) -> str:
+        return "human"

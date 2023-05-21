@@ -48,7 +48,7 @@ def print_obs(o:Observation):
                 c = 'O'
             print(c, end=" ")
         print()
-    print()
+    print(flush=True)
 
 def initial_state(dims:tuple[int, int]) -> State:
     return State(np.zeros(dims, dtype=np.int8))

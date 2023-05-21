@@ -9,9 +9,9 @@ import torch.nn.functional as F
 BOARD_CONV_FILTERS = 64
 
 ACTOR_LR = 1e-4  # Lower lr stabilises training greatly
-CRITIC_LR = 1e-4  # Lower lr stabilises training greatly
-GAMMA = 0.80  # Discount factor for advantage estimation and reward discounting
-
+CRITIC_LR = 5e-4  # Lower lr stabilises training greatly
+GAMMA = 0.75  # Discount factor for advantage estimation and reward discounting
+ENTROPY_BONUS = 0.1
 
 # (Channel, Width, Height)
 def reshape_board(o: env.Observation) -> np.ndarray:
@@ -24,12 +24,6 @@ def obs_batch_to_tensor(
 ) -> torch.Tensor:
     # Convert state batch into correct format
     return torch.from_numpy(np.stack([reshape_board(o) for o in o_batch])).to(device)
-
-
-# output in (Batch, Channel, Width, Height)
-def obs_to_tensor(o: env.Observation, device: torch.device) -> torch.Tensor:
-    # we need to add a batch axis and then convert into a tensor
-    return torch.from_numpy(np.stack([reshape_board(o)])).to(device)
 
 
 def deviceof(m: nn.Module) -> torch.device:
@@ -131,7 +125,7 @@ def compute_policy_gradient_loss(
     * :math:`A^{\pi_{\theta}}(s_t, a_t)` is the current value network's guess of the advantage of action :math:`a_t` at :math:`s_t`
     """
 
-    # here, the multiplication and sum is in order to extract the 
+    # here, the multiplication and sum is in order to extract the
     # in (Batch,)
     pi_theta_at_given_st = torch.sum(pi_theta_given_st * a_t, 1)
 
@@ -149,10 +143,12 @@ def compute_policy_gradient_loss(
     policy_loss_per_example = -torch.log(pi_theta_at_given_st) * A_pi_theta_st_at
 
     # in (Batch,)
-    entropy_per_example = -torch.sum(torch.log(pi_theta_given_st) * pi_theta_given_st, 1)
+    entropy_per_example = -torch.sum(
+        torch.log(pi_theta_given_st) * pi_theta_given_st, 1
+    )
 
     # we reward entropy, since excessive certainty indicate the model is 'overfitting'
-    loss_per_example = policy_loss_per_example - 0.1 * entropy_per_example
+    loss_per_example = policy_loss_per_example - ENTROPY_BONUS * entropy_per_example
 
     # we take the average loss over all examples
     return loss_per_example.mean()
@@ -225,10 +221,6 @@ def compute_advantage(
     Computes advantage using GAE.
 
     See here for derivation: https://arxiv.org/abs/1506.02438
-
-    Note: In this particular case (zero sum game with guaranteed win, loss, or draw)
-    we actually don't need the value estimator, as we can derive the true value from our knowledge if we won or lost.
-    However, I keep the advantage function as specified in the paper for generality.
     """
 
     trajectory_len = len(trajectory_rewards)
@@ -236,21 +228,21 @@ def compute_advantage(
     assert len(trajectory_observations) == trajectory_len
     assert len(trajectory_rewards) == trajectory_len
 
-    trajectory_advantages = np.zeros(trajectory_len)
+    trajectory_returns = np.zeros(trajectory_len)
 
-    # calculate the value of the state at the end
-    last_obs = obs_to_tensor(
-        trajectory_observations[-1], next(critic.parameters()).device
-    )
-    last_obs_value = critic.forward(last_obs)[0]
+    # calculate the value of each state
+    obs_tensor = obs_batch_to_tensor(trajectory_observations, deviceof(critic))
+    obs_values = critic.forward(obs_tensor).detach().cpu().numpy()
 
-    trajectory_advantages[-1] = last_obs_value + trajectory_rewards[-1]
+    trajectory_returns[-1] = trajectory_rewards[-1]
 
     # Use GAMMA to decay the advantage
     for t in reversed(range(trajectory_len - 1)):
-        trajectory_advantages[t] = (
-            trajectory_rewards[t] + GAMMA * trajectory_advantages[t + 1]
+        trajectory_returns[t] = (
+            trajectory_rewards[t] + GAMMA * trajectory_returns[t + 1]
         )
+
+    trajectory_advantages = trajectory_returns - obs_values
 
     return list(trajectory_advantages)
 

@@ -42,7 +42,7 @@ class ActorPlayer(Player):
         device = network.deviceof(self.actor)
 
         action_probs = (
-            self.actor.forward(network.obs_to_tensor(obs, device))[0]
+            self.actor.forward(network.obs_batch_to_tensor([obs], device))[0]
             .detach()
             .cpu()
             .numpy()

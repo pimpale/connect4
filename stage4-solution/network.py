@@ -10,7 +10,7 @@ BOARD_CONV_FILTERS = 64
 
 ACTOR_LR = 1e-4  # Lower lr stabilises training greatly
 CRITIC_LR = 1e-4  # Lower lr stabilises training greatly
-GAMMA = 0.80  # Discount factor for advantage estimation and reward discounting
+GAMMA = 0.90  # Discount factor for advantage estimation and reward discounting
 
 PPO_EPS = 0.2  # PPO clipping parameter
 PPO_GRAD_DESCENT_STEPS = 10  # Number of gradient descent steps to take on the surrogate loss
@@ -224,8 +224,6 @@ def train_ppo(
     # return the respective losses
     return (actor_losses, [float(critic_loss)] * PPO_GRAD_DESCENT_STEPS)
 
-
-
 def compute_advantage(
     critic: Critic,
     trajectory_observations: list[env.Observation],
@@ -235,10 +233,6 @@ def compute_advantage(
     Computes advantage using GAE.
 
     See here for derivation: https://arxiv.org/abs/1506.02438
-
-    Note: In this particular case (zero sum game with guaranteed win, loss, or draw)
-    we actually don't need the value estimator, as we can derive the true value from our knowledge if we won or lost.
-    However, I keep the advantage function as specified in the paper for generality.
     """
 
     trajectory_len = len(trajectory_rewards)
@@ -246,21 +240,21 @@ def compute_advantage(
     assert len(trajectory_observations) == trajectory_len
     assert len(trajectory_rewards) == trajectory_len
 
-    trajectory_advantages = np.zeros(trajectory_len)
+    trajectory_returns = np.zeros(trajectory_len)
 
-    # calculate the value of the state at the end
-    last_obs = obs_to_tensor(
-        trajectory_observations[-1], next(critic.parameters()).device
-    )
-    last_obs_value = critic.forward(last_obs)[0]
+    # calculate the value of each state
+    obs_tensor = obs_batch_to_tensor(trajectory_observations, deviceof(critic))
+    obs_values = critic.forward(obs_tensor).detach().cpu().numpy()
 
-    trajectory_advantages[-1] = last_obs_value + trajectory_rewards[-1]
+    trajectory_returns[-1] = trajectory_rewards[-1]
 
     # Use GAMMA to decay the advantage
     for t in reversed(range(trajectory_len - 1)):
-        trajectory_advantages[t] = (
-            trajectory_rewards[t] + GAMMA * trajectory_advantages[t + 1]
+        trajectory_returns[t] = (
+            trajectory_rewards[t] + GAMMA * trajectory_returns[t + 1]
         )
+
+    trajectory_advantages = trajectory_returns - obs_values
 
     return list(trajectory_advantages)
 
