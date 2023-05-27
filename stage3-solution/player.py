@@ -85,9 +85,6 @@ def heuristic(e: env.Env) -> float:
     for kernel in env.detection_kernels:
         player1_convolved = convolve2d(player1_placed, kernel, mode="valid")
         player2_convolved = convolve2d(player2_placed, kernel, mode="valid")
-
-        player1_score += 0.2*np.sum(player1_convolved == 2)
-        player2_score += 0.2*np.sum(player2_convolved == 2)
         player1_score += np.sum(player1_convolved == 3)
         player2_score += np.sum(player2_convolved == 3)
 
