@@ -59,15 +59,20 @@ class HumanPlayer(Player):
 # this heuristic just counts the number of 4-in-a-rows each player has
 # returns a number between 0 and 1
 def heuristic(e: env.Env) -> float:
-    player1_valid = e.observe(env.PLAYER1).board != env.PLAYER2
-    player2_valid = e.observe(env.PLAYER2).board != env.PLAYER1
+    player1_placed = e.observe(env.PLAYER1).board == env.PLAYER1
+    player2_placed = e.observe(env.PLAYER2).board == env.PLAYER1
 
     player1_score = 0
     player2_score = 0
 
     for kernel in env.detection_kernels:
-        player1_score += np.sum(convolve2d(player1_valid, kernel, mode="valid") == 4)
-        player2_score += np.sum(convolve2d(player2_valid, kernel, mode="valid") == 4)
+        player1_convolved = convolve2d(player1_placed, kernel, mode="valid")
+        player2_convolved = convolve2d(player2_placed, kernel, mode="valid")
+
+        player1_score += 0.2*np.sum(player1_convolved == 2)
+        player2_score += 0.2*np.sum(player2_convolved == 2)
+        player1_score += np.sum(player1_convolved == 3)
+        player2_score += np.sum(player2_convolved == 3)
 
     return np.tanh(player1_score - player2_score)
 
@@ -133,7 +138,8 @@ class MinimaxPlayer(Player):
             return RandomPlayer(self.player).play(e)
 
         obs = e.observe(self.player)
-        _, chosen_action = minimax(e, self.depth, -math.inf, math.inf, self.player)
+        best_score, chosen_action = minimax(e, self.depth, -math.inf, math.inf, self.player)
+        print(best_score)
         if chosen_action is not None:
             reward = e.step(chosen_action, self.player)
             return (obs, chosen_action, reward)

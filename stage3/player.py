@@ -27,12 +27,10 @@ class ActorPlayer(Player):
     def __init__(
         self,
         actor: network.Actor,
-        critic: network.Critic,
         epoch: int,
         player: env.Player,
     ) -> None:
         self.actor = actor
-        self.critic = critic
         self.player = player
         self.epoch = epoch
 

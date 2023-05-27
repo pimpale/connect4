@@ -27,12 +27,10 @@ class ActorPlayer(Player):
     def __init__(
         self,
         actor: network.Actor,
-        critic: network.Critic,
         epoch: int,
         player: env.Player,
     ) -> None:
         self.actor = actor
-        self.critic = critic
         self.player = player
         self.epoch = epoch
 
@@ -77,20 +75,24 @@ class RandomPlayer(Player):
     def name(self) -> str:
         return "random"
 
-
-# this heuristic just counts the number of 4-in-a-rows each player has
 def heuristic(e: env.Env) -> float:
-    player1_valid = e.observe(env.PLAYER1).board != env.PLAYER2
-    player2_valid = e.observe(env.PLAYER2).board != env.PLAYER1
+    player1_placed = e.observe(env.PLAYER1).board == env.PLAYER1
+    player2_placed = e.observe(env.PLAYER2).board == env.PLAYER1
 
     player1_score = 0
     player2_score = 0
 
     for kernel in env.detection_kernels:
-        player1_score += np.sum(convolve2d(player1_valid, kernel, mode="valid") == 4)
-        player2_score += np.sum(convolve2d(player2_valid, kernel, mode="valid") == 4)
+        player1_convolved = convolve2d(player1_placed, kernel, mode="valid")
+        player2_convolved = convolve2d(player2_placed, kernel, mode="valid")
 
-    return player1_score - player2_score
+        player1_score += 0.2*np.sum(player1_convolved == 2)
+        player2_score += 0.2*np.sum(player2_convolved == 2)
+        player1_score += np.sum(player1_convolved == 3)
+        player2_score += np.sum(player2_convolved == 3)
+
+    return np.tanh(player1_score - player2_score)
+
 
 
 # use the minimax algorithm (with alpha beta pruning) to find the best move, searching up to depth

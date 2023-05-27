@@ -254,7 +254,7 @@ def compute_advantage(
             trajectory_rewards[t] + GAMMA * trajectory_returns[t + 1]
         )
 
-    trajectory_advantages = trajectory_returns - obs_values
+    trajectory_advantages = trajectory_returns
 
     return list(trajectory_advantages)
 

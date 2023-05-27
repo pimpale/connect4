@@ -26,9 +26,6 @@ Reward:TypeAlias = np.float32
 # Value of an observation for an agent
 Value:TypeAlias = np.float32
 
-# Advantage of a particular action for an agent
-Advantage:TypeAlias = np.float32
-
 Player:TypeAlias = np.int8
 
 PLAYER1:Player = np.int8(1)

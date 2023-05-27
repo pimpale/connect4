@@ -74,40 +74,29 @@ class Actor(nn.Module):
         output = F.softmax(x, dim=1)
         return output
 
-
 class Critic(nn.Module):
     def __init__(self, width: int, height: int):
         super(Critic, self).__init__()
-
         self.board_width = width
         self.board_height = height
 
-        self.conv1 = nn.Conv2d(2, BOARD_CONV_FILTERS, kernel_size=3, padding=0)
-        self.conv2 = nn.Conv2d(
-            BOARD_CONV_FILTERS, BOARD_CONV_FILTERS, kernel_size=3, padding=0
-        )
-        self.fc1 = nn.Linear((width - 4) * (height - 4) * BOARD_CONV_FILTERS, 512)
-        self.fc2 = nn.Linear(512, 1)
+        # ============ PART 1 ============
+        # TODO: please initialize the following layers:
+        # Conv1: 2 input channels, BOARD_CONV_FILTERS output channels, kernel_size 3, input size (width, height), output size (width-2, height-2),  
+        # Conv2: BOARD_CONV_FILTERS input channels, BOARD_CONV_FILTERS output channels, input size (width -2, height -2), output size (width-4, height-4)
+        # Fc1: Linear Layer, input size = (width-4)*(height-4)*BOARD_CONV_FILTERS, output size = 512
+        # Fc2: Linear Layer, input size = 512, output size = 1
+        pass
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # cast to float32
         # x in (Batch, Width, Height)
         x = x.to(torch.float32)
-        # apply convolutions
-        x = self.conv1(x)
-        x = F.relu(x)
-        x = self.conv2(x)
-        x = F.relu(x)
-        # flatten everything except for batch
-        x = torch.flatten(x, 1)
-        # fully connected layers
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.fc2(x)
-        # delete extra dimension
-        # output in (Batch,)
-        output = x.view((x.shape[0]))
-        return output
+        # ============ PART 1 ============
+        # TODO: please compute the output by running the x through the following layers. 
+        # Conv1 -> Relu -> Conv2 -> Relu -> Fc1 -> Relu -> Fc2
+        # Reshape the output to have dimensions (Batch,)
+        pass
 
 
 def compute_ppo_loss(
@@ -127,7 +116,7 @@ def compute_ppo_loss(
     Computes the PPO surrogate loss function for a vector of examples, and reduces with mean.
     """
 
-    # ======== PART 1 ========
+    # ======== PART 3 ========
     # TODO: Please implement the PPO surrogate loss function
     # Recall that the PPO surrogate loss function is:
     # L_CLIP(theta, theta_k) = E[ min( pi_theta(a|s) / pi_theta_k(a|s) * A_pi_theta_k(a|s), clip(pi_theta(a|s) / pi_theta_k(a|s), 1 - PPO_EPS, 1 + PPO_EPS) * A_pi_theta_k(a|s) ) ]
@@ -185,11 +174,12 @@ def train_ppo(
     advantage_batch_tensor = torch.tensor(advantage_batch).to(device)
 
     # train critic
-    critic_optimizer.zero_grad()
-    pred_value_batch_tensor = critic.forward(observation_batch_tensor)
-    critic_loss = F.mse_loss(pred_value_batch_tensor, true_value_batch_tensor)
-    critic_loss.backward()
-    critic_optimizer.step()
+    # ======== PART 5 ========
+    # TODO: please train the critic.
+    # the critic loss should be the MSE loss between the critic prediction and the true value
+
+
+
 
     # train actor
 
@@ -210,7 +200,7 @@ def train_ppo(
     old_policy_action_probs = actor.forward(observation_batch_tensor).detach()
 
     actor_losses = []
-    # ======== PART 2 ========
+    # ======== PART 4 ========
     # Please implement the PPO algorithm
     # Recall that the PPO algorithm is:
     # 1. For each example in the batch, compute the PPO surrogate loss L_CLIP(theta, theta_k)
@@ -235,28 +225,15 @@ def compute_advantage(
     See here for derivation: https://arxiv.org/abs/1506.02438
     """
 
-    trajectory_len = len(trajectory_rewards)
 
-    assert len(trajectory_observations) == trajectory_len
-    assert len(trajectory_rewards) == trajectory_len
-
-    trajectory_returns = np.zeros(trajectory_len)
-
-    # calculate the value of each state
-    obs_tensor = obs_batch_to_tensor(trajectory_observations, deviceof(critic))
-    obs_values = critic.forward(obs_tensor).detach().cpu().numpy()
-
-    trajectory_returns[-1] = trajectory_rewards[-1]
-
-    # Use GAMMA to decay the advantage
-    for t in reversed(range(trajectory_len - 1)):
-        trajectory_returns[t] = (
-            trajectory_rewards[t] + GAMMA * trajectory_returns[t + 1]
-        )
-
-    trajectory_advantages = trajectory_returns - obs_values
-
-    return list(trajectory_advantages)
+    # ======== PART 2 =========
+    # TODO: please implement this function
+    # trajectory_rewards is a list of rewards for each step in the trajectory
+    # assume that we may get a reward at each step
+    # the output should be a list of values with the same length as trajectory_rewards
+    # the value at each step should be the GAMMA discounted reward-to-go from that step
+    
+    pass
 
 
 def compute_value(
