@@ -6,11 +6,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # Hyperparameters
-BOARD_CONV_FILTERS = 64
+BOARD_CONV_FILTERS = 128
 
 ACTOR_LR = 1e-4  # Lower lr stabilises training greatly
 CRITIC_LR = 1e-4  # Lower lr stabilises training greatly
-GAMMA = 0.90  # Discount factor for advantage estimation and reward discounting
+GAMMA = 0.60  # Discount factor for advantage estimation and reward discounting
+
+CRITIC_EPOCHS = 10
 
 PPO_EPS = 0.2  # PPO clipping parameter
 PPO_GRAD_DESCENT_STEPS = 10  # Number of gradient descent steps to take on the surrogate loss
@@ -183,11 +185,14 @@ def train_ppo(
     advantage_batch_tensor = torch.tensor(advantage_batch).to(device)
 
     # train critic
-    critic_optimizer.zero_grad()
-    pred_value_batch_tensor = critic.forward(observation_batch_tensor)
-    critic_loss = F.mse_loss(pred_value_batch_tensor, true_value_batch_tensor)
-    critic_loss.backward()
-    critic_optimizer.step()
+    critic_losses = []
+    for _ in range(CRITIC_EPOCHS):
+        critic_optimizer.zero_grad()
+        pred_value_batch_tensor = critic.forward(observation_batch_tensor)
+        critic_loss = F.mse_loss(pred_value_batch_tensor, true_value_batch_tensor)
+        critic_loss.backward()
+        critic_optimizer.step()
+        critic_losses.append(float(critic_loss))
 
     # train actor
 
@@ -218,11 +223,12 @@ def train_ppo(
             advantage_batch_tensor,
         )
         actor_loss.backward()
-        actor_losses += [float(actor_loss)]
         actor_optimizer.step()
+        actor_losses += [float(actor_loss)]
+
 
     # return the respective losses
-    return (actor_losses, [float(critic_loss)] * PPO_GRAD_DESCENT_STEPS)
+    return (actor_losses, critic_losses)
 
 def compute_advantage(
     critic: Critic,
@@ -254,7 +260,7 @@ def compute_advantage(
             trajectory_rewards[t] + GAMMA * trajectory_returns[t + 1]
         )
 
-    trajectory_advantages = trajectory_returns
+    trajectory_advantages = trajectory_returns - obs_values
 
     return list(trajectory_advantages)
 
