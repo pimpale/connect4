@@ -9,12 +9,10 @@ import torch.nn.functional as F
 BOARD_CONV_FILTERS = 128
 
 ACTOR_LR = 1e-4  # Lower lr stabilises training greatly
-CRITIC_LR = 1e-4  # Lower lr stabilises training greatly
+CRITIC_LR = 1e-3  # Lower lr stabilises training greatly
 GAMMA = 0.60  # Discount factor for advantage estimation and reward discounting
 
-CRITIC_EPOCHS = 10
-
-PPO_EPS = 0.2  # PPO clipping parameter
+PPO_EPS = 0.1  # PPO clipping parameter
 PPO_GRAD_DESCENT_STEPS = 10  # Number of gradient descent steps to take on the surrogate loss
 
 # (Channel, Width, Height)
@@ -185,14 +183,11 @@ def train_ppo(
     advantage_batch_tensor = torch.tensor(advantage_batch).to(device)
 
     # train critic
-    critic_losses = []
-    for _ in range(CRITIC_EPOCHS):
-        critic_optimizer.zero_grad()
-        pred_value_batch_tensor = critic.forward(observation_batch_tensor)
-        critic_loss = F.mse_loss(pred_value_batch_tensor, true_value_batch_tensor)
-        critic_loss.backward()
-        critic_optimizer.step()
-        critic_losses.append(float(critic_loss))
+    critic_optimizer.zero_grad()
+    pred_value_batch_tensor = critic.forward(observation_batch_tensor)
+    critic_loss = F.mse_loss(pred_value_batch_tensor, true_value_batch_tensor)
+    critic_loss.backward()
+    critic_optimizer.step()
 
     # train actor
 
@@ -228,7 +223,7 @@ def train_ppo(
 
 
     # return the respective losses
-    return (actor_losses, critic_losses)
+    return (actor_losses, [float(critic_loss)]*PPO_GRAD_DESCENT_STEPS)
 
 def compute_advantage(
     critic: Critic,
