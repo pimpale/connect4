@@ -132,8 +132,8 @@ def train_policygradient(
     # TODO: please train the actor 
     # the actor loss should be the loss specified in compute_policy_gradient_loss 
 
-    # return the respective losses
-    return [float(actor_loss)]
+    # while policy gradient loss is just a single scalar, we return a list to match the output of the PPO function (in stage 4)
+    return [actor_loss.item()]
 
 def compute_value(
     trajectory_rewards: list[env.Reward],

@@ -9,20 +9,28 @@ import torch.nn.functional as F
 BOARD_CONV_FILTERS = 128
 
 ACTOR_LR = 1e-4  # Lower lr stabilises training greatly
-GAMMA = 0.75  # Discount factor for advantage estimation and reward discounting
-ENTROPY_BONUS = 0.1
-
-# (Channel, Width, Height)
-def reshape_board(o: env.Observation) -> np.ndarray:
-    return np.stack([o.board == 1, o.board == 2])
+GAMMA = 0.8  # Discount factor for advantage estimation and reward discounting
+ENTROPY_BONUS = 0.15
 
 
 # output in (Batch, Channel, Width, Height)
-def obs_batch_to_tensor(
-    o_batch: list[env.Observation], device: torch.device
+def state_batch_to_tensor(
+    s_batch: list[env.State], device: torch.device
 ) -> torch.Tensor:
     # Convert state batch into correct format
-    return torch.from_numpy(np.stack([reshape_board(o) for o in o_batch])).to(device)
+    return torch.from_numpy(
+        np.stack(
+            [
+                np.stack(
+                    [
+                        s.board == s.current_player,
+                        s.board == env.opponent(s.current_player),
+                    ]
+                )
+                for s in s_batch
+            ]
+        )
+    ).to(device)
 
 
 def deviceof(m: nn.Module) -> torch.device:
@@ -83,7 +91,7 @@ def compute_policy_gradient_loss(
     The standard policy gradient is given by the expected value over trajectories of:
 
     :math:`\sum_{t=0}^{T} \nabla_{\theta} (\log \pi_{\theta}(a_t|s_t))R_t`
-    
+
     where:
     * :math:`\pi_{\theta}(a_t|s_t)` is the current policy's probability to perform action :math:`a_t` given :math:`s_t`
     * :math:`R_t` is the rewards-to-go from the state at time t to the end of the episode from which it came.
@@ -121,26 +129,24 @@ def compute_policy_gradient_loss(
 def train_policygradient(
     actor: Actor,
     actor_optimizer: torch.optim.Optimizer,
-    observation_batch: list[env.Observation],
+    state_batch: list[env.State],
     action_batch: list[env.Action],
-    value_batch: list[env.Value],
-) ->list[float]:
+    value_batch: list[float],
+) -> list[float]:
     # assert that the batch_lengths are the same
-    assert len(observation_batch) == len(action_batch)
-    assert len(observation_batch) == len(value_batch)
+    assert len(state_batch) == len(action_batch)
+    assert len(state_batch) == len(value_batch)
 
     # get device
     device = deviceof(actor)
 
     # convert data to tensors on correct device
 
-    # in (Batch, Width, Height)
-    observation_batch_tensor = obs_batch_to_tensor(observation_batch, device)
+    # in (Batch, Channels, Width, Height)
+    state_batch_tensor = state_batch_to_tensor(state_batch, device)
 
     # in (Batch,)
-    value_batch_tensor = torch.tensor(
-        value_batch, dtype=torch.float32, device=device
-    )
+    value_batch_tensor = torch.tensor(value_batch, dtype=torch.float32, device=device)
 
     # in (Batch, Action)
     chosen_action_tensor = F.one_hot(
@@ -149,19 +155,20 @@ def train_policygradient(
 
     # train actor
     actor_optimizer.zero_grad()
-    action_probs = actor.forward(observation_batch_tensor)
+    action_probs = actor.forward(state_batch_tensor)
     actor_loss = compute_policy_gradient_loss(
         action_probs, chosen_action_tensor, value_batch_tensor
     )
     actor_loss.backward()
     actor_optimizer.step()
 
-    # return the respective losses
-    return [float(actor_loss)]
+    # while policy gradient loss is just a single scalar, we return a list to match the output of the PPO function (in stage 4)
+    return [actor_loss.detach().item()]
+
 
 def compute_value(
-    trajectory_rewards: list[env.Reward],
-) -> list[env.Value]:
+    trajectory_rewards: list[float],
+) -> list[float]:
     """
     Computes the gamma discounted reward-to-go for each state in the trajectory.
 

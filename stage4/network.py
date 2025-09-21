@@ -211,7 +211,7 @@ def train_ppo(
     # See the PPO paper for more details: https://arxiv.org/abs1/1707.06347
 
     # return the respective losses
-    return (actor_losses, [float(critic_loss)] * PPO_GRAD_DESCENT_STEPS)
+    return (actor_losses, [critic_loss.item()] * PPO_GRAD_DESCENT_STEPS)
 
 
 def compute_advantage(
