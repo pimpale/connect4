@@ -12,6 +12,8 @@ In [Stage3](#Stage3) we will create and train a simple actor.
 
 In [Stage4](#Stage4) we will add a critic and train the agent using PPO (Proximal Policy Optimization).
 
+In [Stage5](#Stage5) we will return back to basics, implementing a MCTS agent.
+
 ## Stage1
 
 ### Connect4 Environment
@@ -107,3 +109,5 @@ Instructions are provided in the file.
 Go into `network.py` and fill out the prompt in the `train_ppo` function.
 
 Instructions are provided in the file.
+
+## Stage 5
