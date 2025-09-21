@@ -1,8 +1,7 @@
 from abc import ABC, abstractmethod
 import numpy as np
-import scipy.special
 import math
-import scipy.stats
+import torch
 from scipy.signal import convolve2d
 
 
@@ -21,44 +20,6 @@ class Player(ABC):
     @abstractmethod
     def name(self) -> str:
         pass
-
-
-class ActorPlayer(Player):
-    def __init__(
-        self,
-        actor: network.Actor,
-        epoch: int,
-        player: env.Player,
-    ) -> None:
-        self.actor = actor
-        self.player = player
-        self.epoch = epoch
-
-    def play(self, e: env.Env) -> tuple[env.Observation, env.Action, env.Reward]:
-        obs = e.observe(self.player)
-
-        device = network.deviceof(self.actor)
-
-        action_probs = (
-            self.actor.forward(network.obs_batch_to_tensor([obs], device))[0]
-            .detach()
-            .cpu()
-            .numpy()
-        )
-
-        legal_mask = e.legal_mask()
-
-        raw_p = action_probs * legal_mask
-        p = raw_p / np.sum(raw_p)
-
-        chosen_action = env.Action(np.random.choice(len(p), p=p))
-        reward = e.step(chosen_action, self.player)
-
-        return (obs, chosen_action, reward)
-
-    def name(self) -> str:
-        return f"actor_ckpt_{self.epoch}"
-
 
 class RandomPlayer(Player):
     def __init__(self, player: env.Player) -> None:
@@ -152,3 +113,49 @@ class MinimaxPlayer(Player):
 
     def name(self) -> str:
         return f"minimax(depth={self.depth},randomness={self.randomness})"
+
+class ActorPlayer(Player):
+    def __init__(
+        self,
+        actor: network.Actor,
+        name: str,
+        player: env.Player,
+    ) -> None:
+        self.actor = actor
+        self.player = player
+        self.name = name
+
+    def play(self, e: env.Env) -> tuple[env.Observation, env.Action, env.Reward]:
+        obs = e.observe(self.player)
+
+        device = network.deviceof(self.actor)
+
+        action_probs = (
+            self.actor.forward(network.obs_batch_to_tensor([obs], device))[0]
+            .detach()
+            .cpu()
+            .numpy()
+        )
+
+        legal_mask = e.legal_mask()
+
+        raw_p = action_probs * legal_mask
+        p = raw_p / np.sum(raw_p)
+
+        chosen_action = env.Action(np.random.choice(len(p), p=p))
+        reward = e.step(chosen_action, self.player)
+
+        return (obs, chosen_action, reward)
+
+    def name(self) -> str:
+        return f"actor_{self.name}"
+
+def ActorCheckpointPlayer(ActorPlayer):
+    def __init__(self, checkpoint_path: str, player: env.Player, board_xsize: int, board_ysize: int) -> None:
+        # load the actor from the checkpoint
+        actor = network.Actor(board_xsize, board_ysize)
+        actor.load_state_dict(torch.load(checkpoint_path))
+        super().__init__(actor, checkpoint_path, player)
+
+    def name(self) -> str:
+        return f"actor_checkpoint_{self.checkpoint_path}"

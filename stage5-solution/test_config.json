@@ -1,0 +1,16 @@
+[
+    {
+        "type": "RandomPlayer"
+    },
+    {
+        "type": "MinimaxPlayer",
+        "depth": 3,
+        "randomness": 0.0
+    },
+    {
+        "type": "MCTSPlayer",
+        "simulations": 100,
+        "c_param": 1.4142,
+        "randomness": 0.0
+    }
+]

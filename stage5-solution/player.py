@@ -140,7 +140,6 @@ class MinimaxPlayer(Player):
 
         obs = e.observe(self.player)
         best_score, chosen_action = minimax(e, self.depth, -math.inf, math.inf, self.player)
-        print(best_score)
         if chosen_action is not None:
             reward = e.step(chosen_action, self.player)
             return (obs, chosen_action, reward)
