@@ -1,0 +1,23 @@
+[
+    {
+        "type": "MinimaxPlayer",
+        "depth": 2,
+        "randomness": 0.1
+    },
+    {
+        "type": "MinimaxPlayer",
+        "depth": 2,
+        "randomness": 0.3
+    },
+    {
+        "type": "MinimaxPlayer",
+        "depth": 2,
+        "randomness": 0.5
+    },
+    {
+        "type": "ActorCheckpointPlayer",
+        "board_xsize": 7,
+        "board_ysize": 6,
+        "checkpoint_path": "summary/nn_model_ep_500_actor.ckpt"
+    }
+]
