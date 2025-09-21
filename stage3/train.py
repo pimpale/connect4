@@ -14,6 +14,7 @@ import torch
 from torch import optim
 from torch.utils.tensorboard.writer import SummaryWriter
 import os
+import time
 import queue
 from dataclasses import dataclass
 from typing import List, Tuple
@@ -86,33 +87,18 @@ class RemoteNNPolicy:
         self.inference_response_queue = inference_response_queue
         
     def __call__(self, s: env.State) -> env.Action:
-        # Generate unique request ID
-        request_id = str(uuid.uuid4())
-        
-        # Send inference request
-        request = InferenceRequest(
-            request_id=request_id,
-            state=s,
-        )
-        self.inference_request_queue.put(request)
-        
-        # Wait for response with matching ID
-        while True:
-            response = self.inference_response_queue.get()
-            if response.request_id == request_id:
-                action_probs = response.action_probs
-                break
-            else:
-                # Put it back for other workers if it's not ours
-                self.inference_response_queue.put(response)
-        
-        # Apply legal mask and sample action
-        legal_mask = s.legal_mask()
-        raw_p = action_probs * legal_mask
-        p = raw_p / np.sum(raw_p)
-        chosen_action = env.Action(np.random.choice(len(p), p=p))
-        
-        return chosen_action
+        # ======== PART 6 ========
+        # TODO: Implement remote inference
+        # Steps:
+        # 1. Generate unique request ID using uuid.uuid4()
+        # 2. Create InferenceRequest with the state
+        # 3. Put request in inference_request_queue
+        # 4. Wait for response with matching ID from inference_response_queue
+        #    (Put back responses that don't match our ID)
+        # 5. Apply legal mask to action probabilities
+        # 6. Sample action from the distribution
+        # Return the chosen action
+        pass
 
 
 def play_episode(
@@ -189,46 +175,23 @@ def rollout_worker(
         except queue.Empty:
             pass
         
-        # Collect episodes
-        s_batch: List[env.State] = []
-        a_batch: List[env.Action] = []
-        v_batch: List[float] = []
-        rewards_vs = {}
+        # ======== PART 7 ========
+        # TODO: Collect episodes
+        # Initialize batch lists:
+        # s_batch: List[env.State] = []
+        # a_batch: List[env.Action] = []
+        # v_batch: List[float] = []
+        # rewards_vs = {}
         
-        for _ in range(rollouts_per_agent):
-            # Pick random opponent
-            opponent_player = opponent_pool[np.random.randint(len(opponent_pool))]
-            
-            # Randomly assign actor to player 1 or 2
-            actor_player_identity = env.PLAYER1 if np.random.randint(2) == 0 else env.PLAYER2
-            
-            # Play episode
-            s_t, a_t, r_t, v_t = play_episode(nn_player, opponent_player, actor_player_identity)
-            
-            # Add to batch
-            s_batch += s_t
-            a_batch += a_t
-            v_batch += v_t
-            
-            # Track statistics
-            opp_name = opponent_player.fmt_config(opponent_player.model_dump())
-            total_reward = np.array(r_t).sum()
-            if opp_name in rewards_vs:
-                rewards_vs[opp_name].append(total_reward)
-            else:
-                rewards_vs[opp_name] = [total_reward]
-                    
-        # Send rollout batch to policy server
-        rollout_data = RolloutBatch(
-            states=s_batch,
-            actions=a_batch,
-            values=v_batch,
-            rewards_vs=rewards_vs,
-            worker_id=worker_id
-        )
-        rollout_queue.put(rollout_data)
+        # For each rollout:
+        # 1. Pick random opponent from opponent_pool
+        # 2. Randomly assign actor to PLAYER1 or PLAYER2
+        # 3. Play episode using play_episode()
+        # 4. Add episode data to batch lists
+        # 5. Track statistics in rewards_vs dict
         
-        logger.info(f"Worker {worker_id}: Sent batch with {len(s_batch)} transitions")
+        # Send RolloutBatch to policy server via rollout_queue
+        pass
 
 
 # processess a batch of inference requests and sends the responses back to the inference_response_queue
@@ -328,56 +291,29 @@ def policy_server(
                 pass
 
 
-        # Accumulate all data
-        accumulated_states = []
-        accumulated_actions = []
-        accumulated_values = []
+        # ======== PART 8 ========
+        # TODO: Accumulate data from all rollout batches
+        # Create lists:
+        # accumulated_states = []
+        # accumulated_actions = []
+        # accumulated_values = []
         
-        for rollout_data in rollout_batches:
-            accumulated_states += rollout_data.states
-            accumulated_actions += rollout_data.actions
-            accumulated_values += rollout_data.values
-            
-            # Merge reward statistics
-            for opp_name, rewards in rollout_data.rewards_vs.items():
-                if opp_name in all_rewards_vs:
-                    all_rewards_vs[opp_name] += rewards
-                else:
-                    all_rewards_vs[opp_name] = rewards
-                    
-        # Train the model
-        actor.train()
-        actor_losses = network.train_policygradient(
-            actor,
-            actor_optimizer,
-            accumulated_states,
-            accumulated_actions,
-            accumulated_values
-        )
-        actor.eval()
+        # For each rollout_data in rollout_batches:
+        # 1. Add states, actions, values to accumulated lists
+        # 2. Merge rewards_vs statistics into all_rewards_vs dict
         
-        # Log metrics
-        for actor_loss in actor_losses:
-            writer.add_scalar('actor_loss', actor_loss, step)
-            
-            # Log average rewards against each opponent
-            for opponent_name, rewards in all_rewards_vs.items():
-                if len(rewards) > 400:
-                    avg_reward = np.array(rewards).mean()
-                    writer.add_scalar(f'reward_against_{opponent_name}', avg_reward, step)
-                    all_rewards_vs[opponent_name] = []
-            
-            # Save model periodically
-            if step % MODEL_SAVE_INTERVAL == 0:
-                checkpoint_path = f"{SUMMARY_DIR}/nn_model_ep_{step}_actor.ckpt"
-                torch.save(actor.state_dict(), checkpoint_path)
-                logger.info(f"Policy Server: Saved model checkpoint at step {step}")
-            
-            step += 1
+        # Train the model:
+        # 1. Set actor to train mode
+        # 2. Call network.train_policygradient()
+        # 3. Set actor back to eval mode
         
-        logger.info(f"Policy Server: Step {step}, Loss: {actor_losses[0]:.4f}, "
-                f"Transitions: {len(accumulated_states)}")
-
+        # Log metrics:
+        # 1. Log actor losses to tensorboard
+        # 2. Log average rewards against each opponent (if > 400 samples)
+        # 3. Save model checkpoint every MODEL_SAVE_INTERVAL steps
+        # 4. Increment step counter
+        
+        pass
 
 
 def main():

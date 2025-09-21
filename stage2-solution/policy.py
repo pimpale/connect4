@@ -1,15 +1,12 @@
 from abc import ABC, abstractmethod
-import random
 from typing import Self
 import numpy as np
 import math
 from pydantic import BaseModel
-import torch
 from scipy.signal import convolve2d
 
 
 import env
-import network
 
 
 class Policy(BaseModel, ABC):
@@ -114,40 +111,5 @@ class MinimaxPolicy(Policy):
         e.state = s
 
         _, chosen_action = minimax(e, self.depth, -math.inf, math.inf)
-
-        return chosen_action
-
-class NNCheckpointPolicy(Policy):
-    _actor: network.Actor
-    checkpoint_path: str
-
-    def __init__(
-        self,
-        checkpoint_path: str,
-    ) -> None:
-        super().__init__()
-        # load the actor from the checkpoint
-        actor = network.Actor(env.BOARD_XSIZE, env.BOARD_YSIZE)
-        actor.load_state_dict(torch.load(checkpoint_path))
-        actor.eval()
-        self.checkpoint_path = checkpoint_path
-        self._actor = actor
-
-    def __call__(self, s: env.State) -> env.Action:
-        device = network.deviceof(self._actor)
-
-        action_probs = (
-            self._actor.forward(network.state_batch_to_tensor([s], device))[0]
-            .detach()
-            .cpu()
-            .numpy()
-        )
-
-        legal_mask = s.legal_mask()
-
-        raw_p = action_probs * legal_mask
-        p = raw_p / np.sum(raw_p)
-
-        chosen_action = env.Action(np.random.choice(len(p), p=p))
 
         return chosen_action

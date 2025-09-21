@@ -19,12 +19,14 @@ import time
 import sys
 from pathlib import Path
 from dataclasses import dataclass
+import torch
 
 # Add current directory to path to import local modules
 sys.path.insert(0, str(Path(__file__).parent))
 
 import env
-import player
+import policy
+import network
 
 
 @dataclass
@@ -37,41 +39,58 @@ class GameResult:
     moves: int
 
 
-def create_player_from_config(config: Dict[str, Any], player_num: env.Player) -> player.Player:
+def create_policy_from_config(config: Dict[str, Any]) -> policy.Policy:
     """
-    Create a player instance from a configuration dictionary.
+    Create a policy instance from a configuration dictionary.
     
     Args:
         config: Dictionary containing 'type' and optional parameters
-        player_num: Which player number (env.PLAYER1 or env.PLAYER2)
     
     Returns:
-        Player instance
+        Policy instance
     
     Raises:
-        ValueError: If player type is unknown or parameters are invalid
+        ValueError: If policy type is unknown or parameters are invalid
     """
-    player_type = config.get('type')
+    policy_type = config.get('type')
     
-    if player_type == 'RandomPlayer':
-        # RandomPlayer only needs the player number
-        return player.RandomPlayer(player_num)
+    if policy_type == 'RandomPolicy':
+        return policy.RandomPolicy()
     
-    elif player_type == 'MinimaxPlayer':
-        # MinimaxPlayer needs depth and randomness
+    elif policy_type == 'MinimaxPolicy':
+        # MinimaxPolicy needs depth and randomness
         depth = config.get('depth', 4)  # Default depth of 4
         randomness = config.get('randomness', 0.0)  # Default no randomness
-        return player.MinimaxPlayer(player_num, depth=depth, randomness=randomness)
+        return policy.MinimaxPolicy(depth=depth, randomness=randomness)
     
-    elif player_type == 'ActorCheckpointPlayer':
-        # ActorCheckpointPlayer needs checkpoint path
-        checkpoint_path = config.get('checkpoint_path')  # Default checkpoint path
-        board_xsize = config.get('board_xsize', 7)  # Default board xsize
-        board_ysize = config.get('board_ysize', 6)  # Default board ysize
-        return player.ActorCheckpointPlayer(checkpoint_path, player_num, board_xsize, board_ysize)
+    elif policy_type == 'NNCheckpointPolicy':
+        # NNCheckpointPolicy needs checkpoint path
+        checkpoint_path = config.get('checkpoint_path')
+        if not checkpoint_path:
+            raise ValueError("NNCheckpointPolicy requires 'checkpoint_path' parameter")
+        return policy.NNCheckpointPolicy(checkpoint_path=checkpoint_path)
     
     else:
-        raise ValueError(f"Unknown player type: {player_type}")
+        raise ValueError(f"Unknown policy type: {policy_type}")
+
+
+def get_policy_name(config: Dict[str, Any]) -> str:
+    """Get a descriptive name for a policy configuration."""
+    policy_type = config.get('type', 'UnknownPolicy')
+    
+    if policy_type == 'RandomPolicy':
+        return "Random"
+    elif policy_type == 'MinimaxPolicy':
+        depth = config.get('depth', 4)
+        randomness = config.get('randomness', 0.0)
+        return f"Minimax(d={depth},r={randomness})"
+    elif policy_type == 'NNCheckpointPolicy':
+        checkpoint_path = config.get('checkpoint_path', 'unknown')
+        # Extract just the filename for brevity
+        checkpoint_name = Path(checkpoint_path).name
+        return f"NN({checkpoint_name})"
+    else:
+        return policy_type
 
 
 def play_single_game(args: Tuple[int, Dict[str, Any], Dict[str, Any], bool]) -> GameResult:
@@ -87,44 +106,47 @@ def play_single_game(args: Tuple[int, Dict[str, Any], Dict[str, Any], bool]) -> 
     game_id, player1_config, player2_config, player1_starts = args
     
     # Create environment
-    e = env.Env(dims=(6, 7))  # Standard Connect 4 board
+    e = env.Env()
     
-    # Create players based on who starts
+    # Create policies
+    policy1 = create_policy_from_config(player1_config)
+    policy2 = create_policy_from_config(player2_config)
+    
+    # Map which policy plays for which player based on who starts
     if player1_starts:
-        agent1 = create_player_from_config(player1_config, env.PLAYER1)
-        agent2 = create_player_from_config(player2_config, env.PLAYER2)
+        policies = {env.PLAYER1: policy1, env.PLAYER2: policy2}
+        policy1_player = env.PLAYER1
     else:
-        # Swap the agents
-        agent1 = create_player_from_config(player2_config, env.PLAYER1)
-        agent2 = create_player_from_config(player1_config, env.PLAYER2)
+        # Swap the policies
+        policies = {env.PLAYER1: policy2, env.PLAYER2: policy1}
+        policy1_player = env.PLAYER2
     
     # Play the game
-    current_player = env.PLAYER1
-    players = {env.PLAYER1: agent1, env.PLAYER2: agent2}
-    
     moves = 0
     while not e.game_over():
-        active_player = players[current_player]
-        _ = active_player.play(e)
+        current_player = e.state.current_player
+        active_policy = policies[current_player]
+        
+        # Get action from policy
+        action = active_policy(e.state)
+        
+        # Make the move
+        e.step(action)
         moves += 1
-        current_player = env.opponent(current_player)
     
     # Determine winner
     winner = e.winner()
     
-    # Adjust winner based on who started
-    if winner is not None:
-        if player1_starts:
-            # No adjustment needed
-            pass
-        else:
-            # Swap winner if player positions were swapped
-            winner = env.opponent(winner)
+    # Adjust winner to be from perspective of policy1
+    if winner is not None and not player1_starts:
+        # If player1 didn't start, we need to flip the winner
+        # If PLAYER1 won but policy2 was PLAYER1, then policy1 lost
+        winner = env.opponent(winner)
     
     return GameResult(
         game_id=game_id,
-        player1_name=agent1.name(),
-        player2_name=agent2.name(),
+        player1_name=get_policy_name(player1_config),
+        player2_name=get_policy_name(player2_config),
         winner=winner,
         moves=moves
     )
@@ -151,7 +173,6 @@ def play_matchup(
     """
     if num_workers is None:
         num_workers = mp.cpu_count()
-    
     
     # Prepare arguments for each game
     # Half games with player1 starting, half with player2 starting
@@ -230,7 +251,7 @@ def run_tournament(
     # Display agents
     print("\nAgents in tournament:")
     for i, config in enumerate(agent_configs):
-        print(f"  {i+1}. {json.dumps(config)}: {config}")
+        print(f"  {i+1}. {get_policy_name(config)}: {config}")
     print("-" * 80)
     
     # Run all matchups (each agent plays against every other agent)
@@ -246,8 +267,8 @@ def run_tournament(
             
             player1_config = agent_configs[i]
             player2_config = agent_configs[j]
-            player1_name = json.dumps(player1_config)
-            player2_name = json.dumps(player2_config)
+            player1_name = get_policy_name(player1_config)
+            player2_name = get_policy_name(player2_config)
             
             print(f"\nPlaying: {player1_name} vs {player2_name}...", end='', flush=True)
             
@@ -282,13 +303,13 @@ def run_tournament(
     print("-" * 80)
     
     # Create matrix header
-    agent_names = [config['name'] for config in agent_configs]
+    agent_names = [get_policy_name(config) for config in agent_configs]
     
     # Print header
     max_name_len = max(len(name) for name in agent_names)
     print(" " * (max_name_len + 2), end='')
     for name in agent_names:
-        print(f"{name:>12}", end='')
+        print(f"{name:>15}", end='')
     print()
     
     # Print matrix rows
@@ -296,14 +317,14 @@ def run_tournament(
         print(f"{row_name:<{max_name_len}}  ", end='')
         for j, col_name in enumerate(agent_names):
             if i == j:
-                print(f"{'---':>12}", end='')
+                print(f"{'---':>15}", end='')
             else:
                 matchup_key = f"{row_name} vs {col_name}"
                 if matchup_key in matchup_results:
                     win_rate = matchup_results[matchup_key]['player1_win_rate']
-                    print(f"{win_rate:>11.1f}%", end='')
+                    print(f"{win_rate:>14.1f}%", end='')
                 else:
-                    print(f"{'N/A':>12}", end='')
+                    print(f"{'N/A':>15}", end='')
         print()
     
     # Calculate overall statistics for each agent
@@ -313,7 +334,7 @@ def run_tournament(
     
     agent_stats = {}
     for config in agent_configs:
-        name = json.dumps(config)
+        name = get_policy_name(config)
         total_wins = 0
         total_losses = 0
         total_draws = 0
@@ -353,7 +374,7 @@ def run_tournament(
     
     print(f"{'Rank':<6} {'Agent':<{max_name_len}} {'Wins':<10} {'Losses':<10} {'Draws':<10} " +
           f"{'Total':<10} {'Win %':<10} {'Loss %':<10} {'Draw %':<10}")
-    print("-" * 80)
+    print("-" * 100)
     
     for rank, (name, stats) in enumerate(sorted_agents, 1):
         print(f"{rank:<6} {name:<{max_name_len}} {stats['wins']:<10} {stats['losses']:<10} " +
@@ -371,18 +392,16 @@ def main():
 Configuration file format (JSON):
 [
     {
-        "type": "RandomPlayer"
+        "type": "RandomPolicy"
     },
     {
-        "type": "MinimaxPlayer",
+        "type": "MinimaxPolicy",
         "depth": 4,
         "randomness": 0.0
     },
     {
-        "type": "MCTSPlayer",
-        "simulations": 1000,
-        "c_param": 1.4142,
-        "randomness": 0.0
+        "type": "NNCheckpointPolicy",
+        "checkpoint_path": "./summary/nn_model_ep_0_actor.ckpt"
     }
 ]
 
@@ -416,7 +435,18 @@ Examples:
         help='Number of worker processes (default: number of CPU cores)'
     )
     
+    parser.add_argument(
+        '-s', '--seed',
+        type=int,
+        default=42,
+        help='Random seed for reproducibility (default: 42)'
+    )
+    
     args = parser.parse_args()
+    
+    # Set random seed
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
     
     # Load configuration file
     config_path = Path(args.config)
@@ -466,4 +496,6 @@ Examples:
 
 
 if __name__ == '__main__':
+    # Set multiprocessing start method
+    mp.set_start_method('spawn', force=True)
     main()

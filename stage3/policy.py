@@ -134,20 +134,13 @@ class NNCheckpointPolicy(Policy):
         self._actor = actor
 
     def __call__(self, s: env.State) -> env.Action:
-        device = network.deviceof(self._actor)
-
-        action_probs = (
-            self._actor.forward(network.state_batch_to_tensor([s], device))[0]
-            .detach()
-            .cpu()
-            .numpy()
-        )
-
-        legal_mask = s.legal_mask()
-
-        raw_p = action_probs * legal_mask
-        p = raw_p / np.sum(raw_p)
-
-        chosen_action = env.Action(np.random.choice(len(p), p=p))
-
-        return chosen_action
+        # ======== PART 5 ========
+        # TODO: Use the loaded actor to select an action
+        # Steps:
+        # 1. Get the device of the actor
+        # 2. Convert the state to a tensor batch
+        # 3. Forward pass through the actor to get action probabilities
+        # 4. Apply legal mask and normalize probabilities
+        # 5. Sample an action from the probability distribution
+        # Return the chosen action
+        pass

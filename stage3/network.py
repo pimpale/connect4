@@ -10,29 +10,35 @@ BOARD_CONV_FILTERS = 128
 
 ACTOR_LR = 1e-4  # Lower lr stabilises training greatly
 GAMMA = 0.80  # Discount factor for reward discounting
+ENTROPY_BONUS = 0.15
 
 
 # (Channel, Width, Height)
 def reshape_board(o: env.Observation) -> np.ndarray:
     return np.stack([o.board == 1, o.board == 2])
 
-
-# output in (Batch, Channel, Width, Height)
-def obs_batch_to_tensor(
-    o_batch: list[env.Observation], device: torch.device
-) -> torch.Tensor:
-    # Convert state batch into correct format
-    return torch.from_numpy(np.stack([reshape_board(o) for o in o_batch])).to(device)
-
-
-# output in (Batch, Channel, Width, Height)
-def obs_to_tensor(o: env.Observation, device: torch.device) -> torch.Tensor:
-    # we need to add a batch axis and then convert into a tensor
-    return torch.from_numpy(np.stack([reshape_board(o)])).to(device)
-
-
 def deviceof(m: nn.Module) -> torch.device:
     return next(m.parameters()).device
+
+
+# Convert State to the format needed for neural network input
+def state_batch_to_tensor(
+    states: list[env.State], device: torch.device
+) -> torch.Tensor:
+    """Convert a batch of states to tensor format for neural network input"""
+    # States have board attribute which is a numpy array
+    # We need to convert each board to proper channels (one for each player)
+    batch = []
+    for state in states:
+        # Create two channels: one for current player's pieces, one for opponent's
+        current_channel = (state.board == state.current_player).astype(np.float32)
+        opponent_channel = (state.board == env.opponent(state.current_player)).astype(np.float32)
+        channels = np.stack([current_channel, opponent_channel])
+        batch.append(channels)
+    
+    # Stack into batch and convert to tensor
+    batch_array = np.stack(batch)
+    return torch.from_numpy(batch_array).to(device)
 
 class Actor(nn.Module):
     def __init__(self, width: int, height: int):

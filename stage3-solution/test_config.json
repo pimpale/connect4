@@ -1,0 +1,20 @@
+[
+    {
+        "type": "RandomPolicy"
+    },
+    {
+        "type": "MinimaxPolicy",
+        "depth": 2,
+        "randomness": 0.1
+    },
+    {
+        "type": "MinimaxPolicy",
+        "depth": 3,
+        "randomness": 0.3
+    },
+    {
+        "type": "MinimaxPolicy",
+        "depth": 4,
+        "randomness": 0.0
+    }
+]

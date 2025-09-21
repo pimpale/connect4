@@ -1,76 +1,72 @@
 from abc import ABC, abstractmethod
+from typing import Self
 import numpy as np
-import scipy.special
-import scipy.stats
-from scipy.signal import convolve2d
 import math
 from pydantic import BaseModel
+from scipy.signal import convolve2d
+
 
 import env
 
-class Policy(ABC, BaseModel):
-    @abstractmethod
-    def __call__(self, e: env.Env) -> env.Action:
-        ...
 
-    def __repr__(self) -> str:
-        args = ", ".join(f"{name}={getattr(self, name)!r}" for name in self.model_fields_set)
-        return f"{self.__class__.__name__}({args})"
+class Policy(BaseModel, ABC):
+    @abstractmethod
+    def __call__(self, env: env.Env) -> env.Action: ...
+
+    @classmethod
+    def fmt_config(cls, model_dict: dict) -> str:
+        # print like this: {policy_class.__name__}(key=value, key=value, ...)
+        config_str = ", ".join([f"{key}={value}" for key, value in model_dict.items()])
+        return f"{cls.__name__}({config_str})"
+
 
 class RandomPolicy(Policy):
     def __init__(self) -> None:
         super().__init__()
-    
-    def __call__(self, e: env.Env) -> env.Action:
-        legal_mask = e.legal_mask()
-        action_prob = scipy.special.softmax(np.random.random(size=len(legal_mask)))
-        chosen_action: env.Action = np.argmax(action_prob * legal_mask)
-        return chosen_action
 
-class HumanPolicy(Policy):
-    def __init__(self) -> None:
-        super().__init__()
-    
-    def __call__(self, e: env.Env) -> env.Action:
-        # Display the current board state
-        # Note: We'll need to determine which player perspective to show
-        # For now, display the raw board
-        print("Current board:")
-        for row in reversed(e.state.board):
-            for x in row:
-                c = ' '
-                if x == 1:
-                    c = '#'
-                elif x == 2:
-                    c = 'O'
-                print(c, end=" ")
-            print()
-        legal_mask = e.legal_mask()
-        print('0 1 2 3 4 5 6')
-        print("legal mask:", legal_mask)
-        chosen_action = env.Action(np.int8(input("Choose action: ")))
-        return chosen_action
-    
+    def __call__(self, s: env.State) -> env.Action:
+        legal_mask = s.legal_mask()
+        p = legal_mask / np.sum(legal_mask)
+        return env.Action(np.random.choice(len(p), p=p))
+
+
+def heuristic(s: env.State) -> float:
+    self_placed = s.board == s.current_player
+    opponent_placed = s.board == env.opponent(s.current_player)
+
+    self_score = 0
+    opponent_score = 0
+
+    for kernel in env.detection_kernels:
+        self_convolved = convolve2d(self_placed, kernel, mode="valid")
+        opponent_convolved = convolve2d(opponent_placed, kernel, mode="valid")
+        self_score += np.sum(self_convolved == 3)
+        opponent_score += np.sum(opponent_convolved == 3)
+
+    return np.tanh(self_score - opponent_score)
 
 # use the minimax algorithm (with alpha beta pruning) to find the best move, searching up to depth
 def minimax(e:env.Env, depth:int, alpha:float, beta:float, player:env.Player) -> tuple[float, env.Action]:
     # TODO: Insert your code here
     pass
 
+
 class MinimaxPolicy(Policy):
     depth: int
     randomness: float
-    
-    def __init__(self, depth: int, randomness: float) -> None:
+
+    def __init__(self, depth: int, randomness: float):
         super().__init__(depth=depth, randomness=randomness)
-    
-    def __call__(self, e: env.Env) -> env.Action:
+
+    def __call__(self, s: env.State) -> env.Action:
         # introduce some randomness
         if np.random.random() < self.randomness:
-            return RandomPolicy()(e)
-        
-        # For minimax, we need to know which player is making the move
-        # Assuming current_player is available in the state
-        player = e.state.current_player if hasattr(e.state, 'current_player') else env.PLAYER1
-        _, chosen_action = minimax(e, self.depth, -math.inf, math.inf, player)
+            return RandomPolicy()(s)
+
+        # create a new env and set the state
+        e = env.Env()
+        e.state = s
+
+        _, chosen_action = minimax(e, self.depth, -math.inf, math.inf)
+
         return chosen_action

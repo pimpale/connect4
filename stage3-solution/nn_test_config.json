@@ -1,0 +1,14 @@
+[
+    {
+        "type": "RandomPolicy"
+    },
+    {
+        "type": "MinimaxPolicy",
+        "depth": 3,
+        "randomness": 0.1
+    },
+    {
+        "type": "NNCheckpointPolicy",
+        "checkpoint_path": "./summary/nn_model_ep_0_actor.ckpt"
+    }
+]
