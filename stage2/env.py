@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.signal import convolve2d
 from dataclasses import dataclass
-from typing import Any, Self, TypeAlias, Literal
+from typing import Any, Self, TypeAlias
 
 BOARD_XSIZE = 7
 BOARD_YSIZE = 6
