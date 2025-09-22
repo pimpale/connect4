@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.signal import convolve2d
 from dataclasses import dataclass
-from typing import Any, TypeAlias, Literal
+from typing import Any, Self, TypeAlias, Literal
 
 BOARD_XSIZE = 7
 BOARD_YSIZE = 6
@@ -24,8 +24,12 @@ class State:
     def legal_mask(self) -> np.ndarray[Any, np.dtype[np.bool_]]:
         return self.board[-1] == 0
 
-    def legal_actions(self) -> list[Action]:
-        return [Action(i) for i in range(self.dims()[1]) if self.legal_mask()[i]]
+    def legal_actions(self) -> np.ndarray[Any, np.dtype[np.int8]]:
+        # return the indices of the legal actions
+        return np.where(self.legal_mask())[0]
+
+    def copy(self) -> Self:
+        return State(self.board.copy(), self.current_player)
 
 
 def opponent(actor: Player) -> Player:
@@ -36,9 +40,9 @@ def print_state(s: State):
     board = s.board
     current_player = s.current_player
     opponent_player = opponent(current_player)
-    for y in reversed(len(BOARD_YSIZE)):
+    for y in reversed(range(BOARD_YSIZE)):
         # We print '#' for current player, and 'O' for the opponent
-        for x in len(BOARD_XSIZE):
+        for x in range(BOARD_XSIZE):
             c = " "
             if board[y, x] == current_player:
                 c = "#"
@@ -85,8 +89,9 @@ class Env:
         self._winner = None
         # contains the location of the last placed square
         self._moves = []
-        self.state: State = np.zeros(
-            (BOARD_YSIZE, BOARD_XSIZE), dtype=np.int8, current_player=PLAYER1
+        self.state: State = State(
+            board=np.zeros((BOARD_YSIZE, BOARD_XSIZE), dtype=np.int8),
+            current_player=PLAYER1,
         )
 
     def reset(self) -> None:
@@ -107,25 +112,23 @@ class Env:
     def dims(self) -> tuple[int, int]:
         return self.state.board.shape
 
-    def step(self, a: Action, actor: Player) -> float:
-        assert self.state.current_player == actor
-
+    def step(self, a: Action) -> float:
         for i, row in enumerate(self.state.board):
             if row[a] == 0:
                 self._moves.append((i, a))
-                row[a] = actor
+                row[a] = self.state.current_player
                 break
 
-        # set next player to go
-        self.state.current_player = opponent(actor)
-
-        r = state_to_reward(self.state, actor)
+        r = state_to_reward(self.state, self.state.current_player)
 
         if r != 0:
             self._game_over = True
-            self._winner = actor
+            self._winner = self.state.current_player
         elif drawn(self.state):
             self._game_over = True
+
+        # set next player to go
+        self.state.current_player = opponent(self.state.current_player)
 
         return r
 

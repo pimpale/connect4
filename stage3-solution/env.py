@@ -119,9 +119,6 @@ class Env:
                 row[a] = self.state.current_player
                 break
 
-        # set next player to go
-        self.state.current_player = opponent(self.state.current_player)
-
         r = state_to_reward(self.state, self.state.current_player)
 
         if r != 0:
@@ -129,6 +126,9 @@ class Env:
             self._winner = self.state.current_player
         elif drawn(self.state):
             self._game_over = True
+
+        # set next player to go
+        self.state.current_player = opponent(self.state.current_player)
 
         return r
 

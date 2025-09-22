@@ -130,6 +130,9 @@ class Env:
         elif drawn(self.state):
             self._game_over = True
 
+        # set next player to go
+        self.state.current_player = opponent(self.state.current_player)
+
         return r
 
     def undo(self):
