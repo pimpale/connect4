@@ -41,61 +41,73 @@ INFERENCE_BATCH_SIZE = 64  # Batch size for inference requests
 INFERENCE_BATCH_TIMEOUT = 0.01  # Max time to wait for a full batch (seconds)
 
 # Directory settings
-SUMMARY_DIR = './summary'
-MODEL_DIR = './models'
+SUMMARY_DIR = "./summary"
+MODEL_DIR = "./models"
+
 
 # Message types for inter-process communication
 @dataclass
 class RolloutBatch:
     """Batch of rollout data from a worker"""
+
     states: List[env.State]
     actions: List[env.Action]
-    values: List[float]
+    rewards: List[float]
     rewards_vs: dict  # opponent_name -> list of rewards
     worker_id: int
+
 
 @dataclass
 class InferenceRequest:
     """Request for neural network inference"""
+
     request_id: str
     state: env.State
+
 
 @dataclass
 class InferenceResponse:
     """Response with inference results"""
+
     request_id: str
     action_probs: np.ndarray
+
 
 @dataclass
 class ModelUpdate:
     """Updated model parameters from server"""
+
     state_dict: dict
     step: int
+
 
 @dataclass
 class TerminateSignal:
     """Signal to terminate worker"""
+
     pass
 
 
 class RemoteNNPolicy:
     """Policy that sends inference requests to the policy server"""
-    
-    def __init__(self, inference_request_queue: mp.Queue, inference_response_queue: mp.Queue):
+
+    def __init__(
+        self, inference_request_queue: mp.Queue, inference_response_queue: mp.Queue
+    ):
         self.inference_request_queue = inference_request_queue
         self.inference_response_queue = inference_response_queue
-        
+
     def __call__(self, s: env.State) -> env.Action:
         # Generate unique request ID
         request_id = str(uuid.uuid4())
-        
+
         # Send inference request
         request = InferenceRequest(
             request_id=request_id,
             state=s,
         )
         self.inference_request_queue.put(request)
-        
+
         # Wait for response with matching ID
         while True:
             response = self.inference_response_queue.get()
@@ -105,20 +117,18 @@ class RemoteNNPolicy:
             else:
                 # Put it back for other workers if it's not ours
                 self.inference_response_queue.put(response)
-        
+
         # Apply legal mask and sample action
         legal_mask = s.legal_mask()
         raw_p = action_probs * legal_mask
         p = raw_p / np.sum(raw_p)
         chosen_action = env.Action(np.random.choice(len(p), p=p))
-        
+
         return chosen_action
 
 
 def play_episode(
-    nn_policy: RemoteNNPolicy, 
-    opponent_policy: policy.Policy, 
-    nn_player: env.Player
+    nn_policy: RemoteNNPolicy, opponent_policy: policy.Policy, nn_player: env.Player
 ) -> Tuple[List[env.State], List[env.Action], List[float]]:
     """Play a single episode and return trajectory data"""
     e = env.Env()
@@ -151,11 +161,11 @@ def rollout_worker(
     rollout_queue: mp.Queue,
     inference_request_queue: mp.Queue,
     inference_response_queue: mp.Queue,
-    terminate_queue: mp.Queue
+    terminate_queue: mp.Queue,
 ):
     """
     Rollout worker process that collects episodes.
-    
+
     Args:
         worker_id: Unique identifier for this worker
         rollout_queue: Queue to send rollout data to policy server
@@ -165,16 +175,16 @@ def rollout_worker(
     """
     # Set random seed for this worker
     np.random.seed(RANDOM_SEED + worker_id)
-    
+
     # Create RemoteNNPolicy for this worker
     nn_player = RemoteNNPolicy(inference_request_queue, inference_response_queue)
-    
+
     # Create opponent pool
     opponent_pool = [
         policy.MinimaxPolicy(depth=2, randomness=0.1),
         policy.MinimaxPolicy(depth=2, randomness=0.3),
     ]
-        
+
     while True:
         # Check for termination signal (non-blocking)
         try:
@@ -184,28 +194,32 @@ def rollout_worker(
                 break
         except queue.Empty:
             pass
-        
+
         # Collect episodes
         s_batch: List[env.State] = []
         a_batch: List[env.Action] = []
         r_batch: List[float] = []
         rewards_vs = {}
-        
+
         for _ in range(rollouts_per_agent):
             # Pick random opponent
             opponent_player = opponent_pool[np.random.randint(len(opponent_pool))]
-            
+
             # Randomly assign actor to player 1 or 2
-            actor_player_identity = env.PLAYER1 if np.random.randint(2) == 0 else env.PLAYER2
-            
+            actor_player_identity = (
+                env.PLAYER1 if np.random.randint(2) == 0 else env.PLAYER2
+            )
+
             # Play episode
-            s_t, a_t, r_t = play_episode(nn_player, opponent_player, actor_player_identity)
-            
+            s_t, a_t, r_t = play_episode(
+                nn_player, opponent_player, actor_player_identity
+            )
+
             # Add to batch
             s_batch += s_t
             a_batch += a_t
             r_batch += r_t
-            
+
             # Track statistics
             opp_name = opponent_player.fmt_config(opponent_player.model_dump())
             total_reward = np.array(r_t).sum()
@@ -213,17 +227,17 @@ def rollout_worker(
                 rewards_vs[opp_name].append(total_reward)
             else:
                 rewards_vs[opp_name] = [total_reward]
-                    
+
         # Send rollout batch to policy server
         rollout_data = RolloutBatch(
             states=s_batch,
             actions=a_batch,
             rewards=r_batch,
             rewards_vs=rewards_vs,
-            worker_id=worker_id
+            worker_id=worker_id,
         )
         rollout_queue.put(rollout_data)
-        
+
         logger.info(f"Worker {worker_id}: Sent batch with {len(s_batch)} transitions")
 
 
@@ -232,9 +246,9 @@ def process_inference_batch(
     actor: network.Actor,
     inference_request_queue: mp.Queue,
     inference_response_queue: mp.Queue,
-    device: torch.device
+    device: torch.device,
 ):
-    """Process a batch of inference requests"""    
+    """Process a batch of inference requests"""
 
     # Process inference requests with batching
     inference_batch = []
@@ -247,21 +261,19 @@ def process_inference_batch(
             inference_batch.append(request)
     except queue.Empty:
         pass  # Timeout reached or no more requests
-    
 
     # Convert states to tensor batch
     states = [req.state for req in inference_batch]
     state_tensor = network.state_batch_to_tensor(states, device)
-    
+
     # Run inference
     with torch.inference_mode():
         action_probs_batch = actor.forward(state_tensor).cpu().numpy()
-    
+
     # Create responses
     for i, req in enumerate(inference_batch):
         response = InferenceResponse(
-            request_id=req.request_id,
-            action_probs=action_probs_batch[i]
+            request_id=req.request_id, action_probs=action_probs_batch[i]
         )
         inference_response_queue.put(response)
 
@@ -271,11 +283,11 @@ def policy_server(
     inference_request_queue: mp.Queue,
     inference_response_queue: mp.Queue,
     num_workers: int,
-    device: str
+    device: str,
 ):
     """
     Policy server process that manages the neural network, handles inference, and performs training.
-    
+
     Args:
         rollout_queue: Queue to receive rollout data from workers
         inference_request_queue: Queue to receive inference requests
@@ -287,33 +299,37 @@ def policy_server(
     # Set random seed
     np.random.seed(RANDOM_SEED)
     torch.manual_seed(RANDOM_SEED)
-    
+
     # Create directories
     if not os.path.exists(SUMMARY_DIR):
         os.makedirs(SUMMARY_DIR)
-    
-    # Initialize actor and optimizer
-    device = torch.device(device)
+
     actor = network.Actor(env.BOARD_XSIZE, env.BOARD_YSIZE).to(device)
-    actor.eval()  # Default to eval mode
     actor_optimizer = optim.Adam(actor.parameters(), lr=network.ACTOR_LR)
-    
+
+    critic = network.Critic(env.BOARD_XSIZE, env.BOARD_YSIZE).to(device)
+    critic_optimizer = optim.Adam(critic.parameters(), lr=network.CRITIC_LR)
+
     # Initialize tensorboard writer
     writer = SummaryWriter(log_dir=SUMMARY_DIR)
-    
+
     step = 0
     all_rewards_vs = {}
     batches_received = 0
-    
+
     logger.info(f"Policy Server: Started with {num_workers} workers on device {device}")
 
     while step < TRAIN_EPOCHS:
+        actor.eval()
+        critic.eval()
 
         # process rollout batches until we have a full batch
         rollout_batches = []
-        while len(rollout_batches) < num_workers:            
+        while len(rollout_batches) < num_workers:
             # do some inference
-            process_inference_batch(actor, inference_request_queue, inference_response_queue, device)
+            process_inference_batch(
+                actor, inference_request_queue, inference_response_queue, device
+            )
 
             # get a rollout batch
             try:
@@ -323,16 +339,19 @@ def policy_server(
             except queue.Empty:
                 pass
 
-
         # Accumulate all data
         s_batch = []
         a_batch = []
         v_batch = []
-        
+        d_batch = []
+
         for rollout_data in rollout_batches:
             s_batch += rollout_data.states
             a_batch += rollout_data.actions
             v_batch += network.compute_value(rollout_data.rewards)
+            d_batch += network.compute_advantage(
+                critic, rollout_data.states, rollout_data.rewards
+            )
 
             # Merge reward statistics
             for opp_name, rewards in rollout_data.rewards_vs.items():
@@ -340,40 +359,55 @@ def policy_server(
                     all_rewards_vs[opp_name] += rewards
                 else:
                     all_rewards_vs[opp_name] = rewards
-                    
+
         # Train the model
         actor.train()
-        actor_losses = network.train_policygradient(
+        critic.train()
+        actor_losses, critic_losses = network.train_ppo(
             actor,
+            critic,
             actor_optimizer,
+            critic_optimizer,
             s_batch,
             a_batch,
-            v_batch
+            d_batch,
+            v_batch,
         )
-        actor.eval()
-        
+
+        # pad actor_losses and critic_losses so that they're the same length
+        max_len = max(len(actor_losses), len(critic_losses))
+        actor_losses += [actor_losses[-1]] * (max_len - len(actor_losses))
+        critic_losses += [critic_losses[-1]] * (max_len - len(critic_losses))
+
         # Log metrics
-        for actor_loss in actor_losses:
-            writer.add_scalar('actor_loss', actor_loss, step)
-            
+        for actor_loss, critic_loss in zip(actor_losses, critic_losses):
+            writer.add_scalar("actor_loss", actor_loss, step)
+            writer.add_scalar("critic_loss", critic_loss, step)
+
             # Log average rewards against each opponent
             for opponent_name, rewards in all_rewards_vs.items():
                 if len(rewards) > 400:
                     avg_reward = np.array(rewards).mean()
-                    writer.add_scalar(f'reward_against_{opponent_name}', avg_reward, step)
+                    writer.add_scalar(
+                        f"reward_against_{opponent_name}", avg_reward, step
+                    )
                     all_rewards_vs[opponent_name] = []
-            
+
             # Save model periodically
             if step % MODEL_SAVE_INTERVAL == 0:
-                checkpoint_path = f"{SUMMARY_DIR}/nn_model_ep_{step}_actor.ckpt"
-                torch.save(actor.state_dict(), checkpoint_path)
-                logger.info(f"Policy Server: Saved model checkpoint at step {step}")
-            
-            step += 1
-        
-        logger.info(f"Policy Server: Step {step}, Loss: {actor_losses[0]:.4f}, "
-                f"Transitions: {len(s_batch)}")
+                actor_checkpoint_path = f"{SUMMARY_DIR}/nn_model_ep_{step}_actor.ckpt"
+                critic_checkpoint_path = f"{SUMMARY_DIR}/nn_model_ep_{step}_critic.ckpt"
 
+                torch.save(actor.state_dict(), actor_checkpoint_path)
+                torch.save(critic.state_dict(), critic_checkpoint_path)
+                logger.info(f"Policy Server: Saved model checkpoint at step {step}")
+
+            step += 1
+
+        logger.info(
+            f"Policy Server: Step {step}, Loss: {actor_losses[0]:.4f}, "
+            f"Transitions: {len(s_batch)}"
+        )
 
 
 def main():
@@ -381,19 +415,25 @@ def main():
     # Check CUDA availability
     use_cuda = torch.cuda.is_available()
     device_str = "cuda" if use_cuda else "cpu"
-    
+
     logger.info(f"Starting multiprocessing training on device: {device_str}")
     logger.info(f"Number of CPU cores: {mp.cpu_count()}")
-    
+
     # Set number of workers to CPU count
     num_workers = mp.cpu_count()
-    
+
     # Create queues for communication
     rollout_queue = mp.Queue(maxsize=num_workers * 2)  # Buffer for rollout data
-    inference_request_queue = mp.Queue(maxsize=num_workers * 100)  # Inference requests from all workers
-    inference_response_queue = mp.Queue(maxsize=num_workers * 100)  # Shared response queue for all workers
-    terminate_queues = [mp.Queue(maxsize=1) for _ in range(num_workers)]  # Termination signals
-    
+    inference_request_queue = mp.Queue(
+        maxsize=num_workers * 100
+    )  # Inference requests from all workers
+    inference_response_queue = mp.Queue(
+        maxsize=num_workers * 100
+    )  # Shared response queue for all workers
+    terminate_queues = [
+        mp.Queue(maxsize=1) for _ in range(num_workers)
+    ]  # Termination signals
+
     # Start policy server process
     server_process = mp.Process(
         target=policy_server,
@@ -402,11 +442,11 @@ def main():
             inference_request_queue,
             inference_response_queue,
             num_workers,
-            device_str
-        )
+            device_str,
+        ),
     )
     server_process.start()
-    
+
     # Start worker processes
     worker_processes = []
     for i in range(num_workers):
@@ -418,14 +458,14 @@ def main():
                 rollout_queue,
                 inference_request_queue,
                 inference_response_queue,
-                terminate_queues[i]
-            )
+                terminate_queues[i],
+            ),
         )
         worker_process.start()
         worker_processes.append(worker_process)
-    
+
     logger.info(f"Started {num_workers} rollout workers and 1 policy server")
-    
+
     # Handle graceful shutdown
     def signal_handler(sig, frame):
         logger.info("\nShutting down training...")
@@ -433,17 +473,17 @@ def main():
         for p in worker_processes:
             p.terminate()
         sys.exit(0)
-    
+
     signal.signal(signal.SIGINT, signal_handler)
-    
+
     try:
         # Wait for server process to complete
         server_process.join()
-        
+
         # Wait for all workers to complete
         for p in worker_processes:
             p.join()
-            
+
     except KeyboardInterrupt:
         logger.info("\nInterrupted, cleaning up...")
         server_process.terminate()

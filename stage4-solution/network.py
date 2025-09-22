@@ -10,29 +10,30 @@ BOARD_CONV_FILTERS = 128
 
 ACTOR_LR = 1e-4  # Lower lr stabilises training greatly
 CRITIC_LR = 1e-3  # Lower lr stabilises training greatly
-GAMMA = 0.60  # Discount factor for advantage estimation and reward discounting
+GAMMA = 0.80  # Discount factor for advantage estimation and reward discounting
+ENTROPY_BONUS = 0.1  # Bonus for entropy
 
 PPO_EPS = 0.1  # PPO clipping parameter
-PPO_GRAD_DESCENT_STEPS = 10  # Number of gradient descent steps to take on the surrogate loss
-
-# (Channel, Width, Height)
-def reshape_board(o: env.Observation) -> np.ndarray:
-    return np.stack([o.board == 1, o.board == 2])
-
+PPO_GRAD_DESCENT_STEPS = 5  # Number of gradient descent steps to take on the surrogate loss
 
 # output in (Batch, Channel, Width, Height)
-def obs_batch_to_tensor(
-    o_batch: list[env.Observation], device: torch.device
+def state_batch_to_tensor(
+    s_batch: list[env.State], device: torch.device
 ) -> torch.Tensor:
     # Convert state batch into correct format
-    return torch.from_numpy(np.stack([reshape_board(o) for o in o_batch])).to(device)
-
-
-# output in (Batch, Channel, Width, Height)
-def obs_to_tensor(o: env.Observation, device: torch.device) -> torch.Tensor:
-    # we need to add a batch axis and then convert into a tensor
-    return torch.from_numpy(np.stack([reshape_board(o)])).to(device)
-
+    return torch.from_numpy(
+        np.stack(
+            [
+                np.stack(
+                    [
+                        s.board == s.current_player,
+                        s.board == env.opponent(s.current_player),
+                    ]
+                )
+                for s in s_batch
+            ]
+        )
+    ).to(device)
 
 def deviceof(m: nn.Module) -> torch.device:
     return next(m.parameters()).device
@@ -138,7 +139,7 @@ def compute_ppo_loss(
     entropy_per_example = -torch.sum(torch.log(pi_theta_given_st) * pi_theta_given_st, 1)
 
     # we reward entropy, since excessive certainty indicate the model is 'overfitting'
-    loss_per_example = ppo_loss_per_example - 0.1 * entropy_per_example
+    loss_per_example = ppo_loss_per_example - ENTROPY_BONUS * entropy_per_example
 
     # we take the average loss over all examples
     return loss_per_example.mean()
@@ -149,17 +150,17 @@ def train_ppo(
     critic: Critic,
     actor_optimizer: torch.optim.Optimizer,
     critic_optimizer: torch.optim.Optimizer,
-    observation_batch: list[env.Observation],
+    state_batch: list[env.State],
     action_batch: list[env.Action],
-    advantage_batch: list[env.Advantage],
-    value_batch: list[env.Value],
+    advantage_batch: list[float],
+    value_batch: list[float],
 ) -> tuple[list[float], list[float]]:
     # assert that the models are on the same device
     assert next(critic.parameters()).device == next(actor.parameters()).device
     # assert that the batch_lengths are the same
-    assert len(observation_batch) == len(action_batch)
-    assert len(observation_batch) == len(advantage_batch)
-    assert len(observation_batch) == len(value_batch)
+    assert len(state_batch) == len(action_batch)
+    assert len(state_batch) == len(advantage_batch)
+    assert len(state_batch) == len(value_batch)
 
     # get device
     device = next(critic.parameters()).device
@@ -167,7 +168,7 @@ def train_ppo(
     # convert data to tensors on correct device
 
     # in (Batch, Width, Height)
-    observation_batch_tensor = obs_batch_to_tensor(observation_batch, device)
+    state_batch_tensor = state_batch_to_tensor(state_batch, device)
 
     # in (Batch,)
     true_value_batch_tensor = torch.tensor(
@@ -184,7 +185,7 @@ def train_ppo(
 
     # train critic
     critic_optimizer.zero_grad()
-    pred_value_batch_tensor = critic.forward(observation_batch_tensor)
+    pred_value_batch_tensor = critic.forward(state_batch_tensor)
     critic_loss = F.mse_loss(pred_value_batch_tensor, true_value_batch_tensor)
     critic_loss.backward()
     critic_optimizer.step()
@@ -205,12 +206,12 @@ def train_ppo(
 
     # the old_policy_action_probs are the the predictions made by the pre-train-step network that we want to not diverge too far away from
     # in (Batch, Action)
-    old_policy_action_probs = actor.forward(observation_batch_tensor).detach()
+    old_policy_action_probs = actor.forward(state_batch_tensor).detach()
 
     actor_losses = []
     for _ in range(PPO_GRAD_DESCENT_STEPS):
         actor_optimizer.zero_grad()
-        current_policy_action_probs = actor.forward(observation_batch_tensor)
+        current_policy_action_probs = actor.forward(state_batch_tensor)
         actor_loss = compute_ppo_loss(
             old_policy_action_probs,
             current_policy_action_probs,
@@ -219,7 +220,7 @@ def train_ppo(
         )
         actor_loss.backward()
         actor_optimizer.step()
-        actor_losses += [float(actor_loss)]
+        actor_losses += [float(actor_loss.detach().cpu())]
 
 
     # return the respective losses
@@ -227,9 +228,9 @@ def train_ppo(
 
 def compute_advantage(
     critic: Critic,
-    trajectory_observations: list[env.Observation],
-    trajectory_rewards: list[env.Reward],
-) -> list[env.Advantage]:
+    trajectory_states: list[env.State],
+    trajectory_rewards: list[float],
+) -> list[float]:
     """
     Computes advantage using GAE.
 
@@ -238,14 +239,14 @@ def compute_advantage(
 
     trajectory_len = len(trajectory_rewards)
 
-    assert len(trajectory_observations) == trajectory_len
+    assert len(trajectory_states) == trajectory_len
     assert len(trajectory_rewards) == trajectory_len
 
     trajectory_returns = np.zeros(trajectory_len)
 
     # calculate the value of each state
-    obs_tensor = obs_batch_to_tensor(trajectory_observations, deviceof(critic))
-    obs_values = critic.forward(obs_tensor).detach().cpu().numpy()
+    s_tensor = state_batch_to_tensor(trajectory_states, deviceof(critic))
+    s_values = critic.forward(s_tensor).detach().cpu().numpy()
 
     trajectory_returns[-1] = trajectory_rewards[-1]
 
@@ -255,14 +256,14 @@ def compute_advantage(
             trajectory_rewards[t] + GAMMA * trajectory_returns[t + 1]
         )
 
-    trajectory_advantages = trajectory_returns - obs_values
+    trajectory_advantages = trajectory_returns - s_values
 
     return list(trajectory_advantages)
 
 
 def compute_value(
-    trajectory_rewards: list[env.Reward],
-) -> list[env.Value]:
+    trajectory_rewards: list[float],
+) -> list[float]:
     """
     Computes the gamma discounted reward-to-go for each state in the trajectory.
 

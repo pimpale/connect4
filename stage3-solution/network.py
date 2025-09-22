@@ -10,7 +10,7 @@ BOARD_CONV_FILTERS = 128
 
 ACTOR_LR = 1e-4  # Lower lr stabilises training greatly
 GAMMA = 0.8  # Discount factor for advantage estimation and reward discounting
-ENTROPY_BONUS = 0.15
+ENTROPY_BONUS = 0.1 # bonus for entropy
 
 
 # output in (Batch, Channel, Width, Height)

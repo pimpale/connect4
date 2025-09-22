@@ -4,11 +4,11 @@
     },
     {
         "type": "MinimaxPolicy",
-        "depth": 3,
+        "depth": 2,
         "randomness": 0.1
     },
     {
         "type": "NNCheckpointPolicy",
-        "checkpoint_path": "./summary/nn_model_ep_0_actor.ckpt"
+        "checkpoint_path": "./summary/nn_model_ep_500_actor.ckpt"
     }
 ]
