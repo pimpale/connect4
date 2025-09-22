@@ -1,14 +1,14 @@
 [
     {
-        "type": "RandomPlayer"
+        "type": "RandomPolicy"
     },
     {
-        "type": "MinimaxPlayer",
+        "type": "MinimaxPolicy",
         "depth": 3,
         "randomness": 0.0
     },
     {
-        "type": "MCTSPlayer",
+        "type": "MCTSPolicy",
         "simulations": 100,
         "c_param": 1.4142,
         "randomness": 0.0

@@ -24,13 +24,11 @@ from dataclasses import dataclass
 sys.path.insert(0, str(Path(__file__).parent))
 
 import env
-import player
-
+import policy
 
 @dataclass
 class GameResult:
     """Container for a single game result."""
-    matchup_id: str
     game_id: int
     player1_name: str
     player2_name: str
@@ -38,105 +36,126 @@ class GameResult:
     moves: int
 
 
-def create_player_from_config(config: Dict[str, Any], player_num: env.Player) -> player.Player:
+def create_policy_from_config(config: Dict[str, Any]) -> policy.Policy:
     """
-    Create a player instance from a configuration dictionary.
+    Create a policy instance from a configuration dictionary.
     
     Args:
         config: Dictionary containing 'type' and optional parameters
-        player_num: Which player number (env.PLAYER1 or env.PLAYER2)
     
     Returns:
-        Player instance
+        Policy instance
     
     Raises:
-        ValueError: If player type is unknown or parameters are invalid
+        ValueError: If policy type is unknown or parameters are invalid
     """
-    player_type = config.get('type')
+    policy_type = config.get('type')
     
-    if player_type == 'RandomPlayer':
-        # RandomPlayer only needs the player number
-        return player.RandomPlayer(player_num)
+    if policy_type == 'RandomPolicy':
+        return policy.RandomPolicy()
     
-    elif player_type == 'MinimaxPlayer':
-        # MinimaxPlayer needs depth and randomness
+    elif policy_type == 'MinimaxPolicy':
+        # MinimaxPolicy needs depth and randomness
         depth = config.get('depth', 4)  # Default depth of 4
         randomness = config.get('randomness', 0.0)  # Default no randomness
-        return player.MinimaxPlayer(player_num, depth=depth, randomness=randomness)
+        return policy.MinimaxPolicy(depth=depth, randomness=randomness)
     
-    elif player_type == 'MCTSPlayer':
-        # MCTSPlayer needs simulations, c_param, and randomness
-        simulations = config.get('simulations', 1000)  # Default 1000 simulations
-        c_param = config.get('c_param', 1.4142)  # Default exploration parameter
-        randomness = config.get('randomness', 0.0)  # Default no randomness
-        return player.MCTSPlayer(
-            player_num, 
-            simulations=simulations, 
-            c_param=c_param, 
-            randomness=randomness
-        )
+    elif policy_type == 'NNCheckpointPolicy':
+        # NNCheckpointPolicy needs checkpoint path
+        checkpoint_path = config.get('checkpoint_path')
+        if not checkpoint_path:
+            raise ValueError("NNCheckpointPolicy requires 'checkpoint_path' parameter")
+        return policy.NNCheckpointPolicy(checkpoint_path=checkpoint_path)
+    
+    elif policy_type == 'MCTSPolicy':
+        # MCTSPolicy needs simulations, c_param, and randomness
+        simulations = config.get('simulations', 1000)
+        c_param = config.get('c_param', 1.4142)
+        randomness = config.get('randomness', 0.0)
+        return policy.MCTSPolicy(simulations=simulations, c_param=c_param, randomness=randomness)
     
     else:
-        raise ValueError(f"Unknown player type: {player_type}")
+        raise ValueError(f"Unknown policy type: {policy_type}")
 
 
-def play_single_game(args: Tuple[int, Dict[str, Any], Dict[str, Any], bool, str]) -> GameResult:
+def get_policy_name(config: Dict[str, Any]) -> str:
+    """Get a descriptive name for a policy configuration."""
+    policy_type = config.get('type', 'UnknownPolicy')
+    
+    if policy_type == 'RandomPolicy':
+        return "Random"
+    elif policy_type == 'MinimaxPolicy':
+        depth = config.get('depth', 4)
+        randomness = config.get('randomness', 0.0)
+        return f"Minimax(d={depth},r={randomness})"
+    elif policy_type == 'NNCheckpointPolicy':
+        checkpoint_path = config.get('checkpoint_path', 'unknown')
+        # Extract just the filename for brevity
+        checkpoint_name = Path(checkpoint_path).name
+        return f"NN({checkpoint_name})"
+    elif policy_type == 'MCTSPolicy':
+        simulations = config.get('simulations', 1000)
+        c_param = config.get('c_param', 1.4142)
+        randomness = config.get('randomness', 0.0)
+        return f"MCTS(s={simulations},c={c_param},r={randomness})"
+    else:
+        return policy_type
+
+
+def play_single_game(args: Tuple[int, Dict[str, Any], Dict[str, Any], bool]) -> GameResult:
     """
     Play a single game between two agents.
     
     Args:
-        args: Tuple of (game_id, player1_config, player2_config, player1_starts, matchup_id)
+        args: Tuple of (game_id, player1_config, player2_config, player1_starts)
     
     Returns:
         GameResult object with the outcome
     """
-    game_id, player1_config, player2_config, player1_starts, matchup_id = args
+    game_id, player1_config, player2_config, player1_starts = args
     
     # Create environment
-    e = env.Env(dims=(6, 7))  # Standard Connect 4 board
+    e = env.Env()
     
-    # Create players based on who starts
+    # Create policies
+    policy1 = create_policy_from_config(player1_config)
+    policy2 = create_policy_from_config(player2_config)
+    
+    # Map which policy plays for which player based on who starts
     if player1_starts:
-        agent1 = create_player_from_config(player1_config, env.PLAYER1)
-        agent2 = create_player_from_config(player2_config, env.PLAYER2)
-        player1_name = player1_config.get('name', player1_config['type'])
-        player2_name = player2_config.get('name', player2_config['type'])
+        policies = {env.PLAYER1: policy1, env.PLAYER2: policy2}
+        policy1_player = env.PLAYER1
     else:
-        # Swap the agents
-        agent1 = create_player_from_config(player2_config, env.PLAYER1)
-        agent2 = create_player_from_config(player1_config, env.PLAYER2)
-        # Keep track of original player names for results
-        player1_name = player1_config.get('name', player1_config['type'])
-        player2_name = player2_config.get('name', player2_config['type'])
+        # Swap the policies
+        policies = {env.PLAYER1: policy2, env.PLAYER2: policy1}
+        policy1_player = env.PLAYER2
     
     # Play the game
-    current_player = env.PLAYER1
-    players = {env.PLAYER1: agent1, env.PLAYER2: agent2}
-    
     moves = 0
     while not e.game_over():
-        active_player = players[current_player]
-        _ = active_player.play(e)
+        current_player = e.state.current_player
+        active_policy = policies[current_player]
+        
+        # Get action from policy
+        action = active_policy(e.state)
+        
+        # Make the move
+        e.step(action)
         moves += 1
-        current_player = env.opponent(current_player)
     
     # Determine winner
     winner = e.winner()
     
-    # Adjust winner based on who started
-    if winner is not None:
-        if player1_starts:
-            # No adjustment needed
-            pass
-        else:
-            # Swap winner if player positions were swapped
-            winner = env.opponent(winner)
+    # Adjust winner to be from perspective of policy1
+    if winner is not None and not player1_starts:
+        # If player1 didn't start, we need to flip the winner
+        # If PLAYER1 won but policy2 was PLAYER1, then policy1 lost
+        winner = env.opponent(winner)
     
     return GameResult(
-        matchup_id=matchup_id,
         game_id=game_id,
-        player1_name=player1_name,
-        player2_name=player2_name,
+        player1_name=get_policy_name(player1_config),
+        player2_name=get_policy_name(player2_config),
         winner=winner,
         moves=moves
     )
@@ -164,10 +183,6 @@ def play_matchup(
     if num_workers is None:
         num_workers = mp.cpu_count()
     
-    player1_name = player1_config.get('name', player1_config['type'])
-    player2_name = player2_config.get('name', player2_config['type'])
-    matchup_id = f"{player1_name}_vs_{player2_name}"
-    
     # Prepare arguments for each game
     # Half games with player1 starting, half with player2 starting
     game_args = []
@@ -175,10 +190,10 @@ def play_matchup(
     games_as_second = games_per_matchup - games_as_first
     
     for i in range(games_as_first):
-        game_args.append((i, player1_config, player2_config, True, matchup_id))
+        game_args.append((i, player1_config, player2_config, True))
     
     for i in range(games_as_second):
-        game_args.append((games_as_first + i, player1_config, player2_config, False, matchup_id))
+        game_args.append((games_as_first + i, player1_config, player2_config, False))
     
     # Shuffle to mix up the order
     np.random.shuffle(game_args)
@@ -190,14 +205,12 @@ def play_matchup(
     return results
 
 
-def analyze_matchup_results(results: List[GameResult], player1_name: str, player2_name: str) -> Dict[str, Any]:
+def analyze_matchup_results(results: List[GameResult]) -> Dict[str, Any]:
     """
     Analyze results for a specific matchup.
     
     Args:
         results: List of GameResult objects for this matchup
-        player1_name: Name of player 1
-        player2_name: Name of player 2
     
     Returns:
         Dictionary with analysis
@@ -239,21 +252,6 @@ def run_tournament(
     
     num_agents = len(agent_configs)
     
-    # Add names to configs if not present
-    for i, config in enumerate(agent_configs):
-        if 'name' not in config:
-            # Create a name based on type and parameters
-            agent_type = config['type']
-            if agent_type == 'RandomPlayer':
-                config['name'] = 'Random'
-            elif agent_type == 'MinimaxPlayer':
-                depth = config.get('depth', 4)
-                randomness = config.get('randomness', 0.0)
-                config['name'] = f'Minimax(d={depth},r={randomness})'
-            elif agent_type == 'MCTSPlayer':
-                sims = config.get('simulations', 1000)
-                config['name'] = f'MCTS(s={sims})'
-    
     print(f"Running tournament with {num_agents} agents")
     print(f"Games per matchup: {games_per_matchup}")
     print(f"Using {num_workers} worker processes")
@@ -262,7 +260,7 @@ def run_tournament(
     # Display agents
     print("\nAgents in tournament:")
     for i, config in enumerate(agent_configs):
-        print(f"  {i+1}. {config['name']}: {config}")
+        print(f"  {i+1}. {get_policy_name(config)}: {config}")
     print("-" * 80)
     
     # Run all matchups (each agent plays against every other agent)
@@ -278,8 +276,8 @@ def run_tournament(
             
             player1_config = agent_configs[i]
             player2_config = agent_configs[j]
-            player1_name = player1_config['name']
-            player2_name = player2_config['name']
+            player1_name = get_policy_name(player1_config)
+            player2_name = get_policy_name(player2_config)
             
             print(f"\nPlaying: {player1_name} vs {player2_name}...", end='', flush=True)
             
@@ -289,7 +287,7 @@ def run_tournament(
             
             # Analyze this matchup
             matchup_key = f"{player1_name} vs {player2_name}"
-            matchup_results[matchup_key] = analyze_matchup_results(results, player1_name, player2_name)
+            matchup_results[matchup_key] = analyze_matchup_results(results)
             
             # Quick summary
             analysis = matchup_results[matchup_key]
@@ -314,13 +312,13 @@ def run_tournament(
     print("-" * 80)
     
     # Create matrix header
-    agent_names = [config['name'] for config in agent_configs]
+    agent_names = [get_policy_name(config) for config in agent_configs]
     
     # Print header
     max_name_len = max(len(name) for name in agent_names)
     print(" " * (max_name_len + 2), end='')
     for name in agent_names:
-        print(f"{name:>12}", end='')
+        print(f"{name:>15}", end='')
     print()
     
     # Print matrix rows
@@ -328,14 +326,14 @@ def run_tournament(
         print(f"{row_name:<{max_name_len}}  ", end='')
         for j, col_name in enumerate(agent_names):
             if i == j:
-                print(f"{'---':>12}", end='')
+                print(f"{'---':>15}", end='')
             else:
                 matchup_key = f"{row_name} vs {col_name}"
                 if matchup_key in matchup_results:
                     win_rate = matchup_results[matchup_key]['player1_win_rate']
-                    print(f"{win_rate:>11.1f}%", end='')
+                    print(f"{win_rate:>14.1f}%", end='')
                 else:
-                    print(f"{'N/A':>12}", end='')
+                    print(f"{'N/A':>15}", end='')
         print()
     
     # Calculate overall statistics for each agent
@@ -345,7 +343,7 @@ def run_tournament(
     
     agent_stats = {}
     for config in agent_configs:
-        name = config['name']
+        name = get_policy_name(config)
         total_wins = 0
         total_losses = 0
         total_draws = 0
@@ -360,7 +358,6 @@ def run_tournament(
                 total_games_played += result['total_games']
             elif f"vs {name}" in key:
                 # This agent was player 2
-                other_name = key.split(" vs ")[0]
                 total_wins += result['player2_wins']
                 total_losses += result['player1_wins']
                 total_draws += result['draws']
@@ -386,7 +383,7 @@ def run_tournament(
     
     print(f"{'Rank':<6} {'Agent':<{max_name_len}} {'Wins':<10} {'Losses':<10} {'Draws':<10} " +
           f"{'Total':<10} {'Win %':<10} {'Loss %':<10} {'Draw %':<10}")
-    print("-" * 80)
+    print("-" * 100)
     
     for rank, (name, stats) in enumerate(sorted_agents, 1):
         print(f"{rank:<6} {name:<{max_name_len}} {stats['wins']:<10} {stats['losses']:<10} " +
@@ -404,18 +401,16 @@ def main():
 Configuration file format (JSON):
 [
     {
-        "type": "RandomPlayer"
+        "type": "RandomPolicy"
     },
     {
-        "type": "MinimaxPlayer",
+        "type": "MinimaxPolicy",
         "depth": 4,
         "randomness": 0.0
     },
     {
-        "type": "MCTSPlayer",
-        "simulations": 1000,
-        "c_param": 1.4142,
-        "randomness": 0.0
+        "type": "NNCheckpointPolicy",
+        "checkpoint_path": "./summary/nn_model_ep_0_actor.ckpt"
     }
 ]
 
@@ -449,7 +444,17 @@ Examples:
         help='Number of worker processes (default: number of CPU cores)'
     )
     
+    parser.add_argument(
+        '-s', '--seed',
+        type=int,
+        default=42,
+        help='Random seed for reproducibility (default: 42)'
+    )
+    
     args = parser.parse_args()
+    
+    # Set random seed
+    np.random.seed(args.seed)
     
     # Load configuration file
     config_path = Path(args.config)
@@ -476,7 +481,6 @@ Examples:
         print("Error: At least 2 agents are required for a tournament", file=sys.stderr)
         sys.exit(1)
     
-    valid_types = {'RandomPlayer', 'MinimaxPlayer', 'MCTSPlayer'}
     for i, config in enumerate(agent_configs):
         if not isinstance(config, dict):
             print(f"Error: Agent configuration {i} must be a dictionary", file=sys.stderr)
@@ -484,11 +488,6 @@ Examples:
         
         if 'type' not in config:
             print(f"Error: Agent configuration {i} missing 'type' field", file=sys.stderr)
-            sys.exit(1)
-        
-        if config['type'] not in valid_types:
-            print(f"Error: Agent configuration {i} has invalid type '{config['type']}'", file=sys.stderr)
-            print(f"Valid types are: {', '.join(valid_types)}", file=sys.stderr)
             sys.exit(1)
     
     # Run tournament
@@ -505,4 +504,6 @@ Examples:
 
 
 if __name__ == '__main__':
+    # Set multiprocessing start method
+    mp.set_start_method('spawn', force=True)
     main()
