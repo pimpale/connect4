@@ -174,9 +174,9 @@ def rollout_worker(
     
     # Create opponent pool
     opponent_pool = [
-        policy.MinimaxPolicy(depth=3, randomness=0.1),
-        policy.MinimaxPolicy(depth=3, randomness=0.3),
-        policy.MinimaxPolicy(depth=3, randomness=0.5),
+        policy.MinimaxPolicy(depth=2, randomness=0.1),
+        policy.MinimaxPolicy(depth=2, randomness=0.3),
+        policy.MinimaxPolicy(depth=2, randomness=0.5),
     ]
         
     while True:
