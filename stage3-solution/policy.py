@@ -1,15 +1,16 @@
 from abc import ABC, abstractmethod
 import random
 from typing import Self
+import uuid
 import numpy as np
 import math
 from pydantic import BaseModel
 import torch
 from scipy.signal import convolve2d
-
+import multiprocessing as mp
 
 import env
-import network
+import inference
 
 
 class Policy(BaseModel, ABC):
@@ -128,36 +129,42 @@ class MinimaxPolicy(Policy):
 
         return chosen_action
 
-class NNCheckpointPolicy(Policy):
-    _actor: network.Actor
-    checkpoint_path: str
 
-    def __init__(
-        self,
-        checkpoint_path: str,
-    ) -> None:
-        super().__init__(checkpoint_path=checkpoint_path)
-        # load the actor from the checkpoint
-        actor = network.Actor(env.BOARD_XSIZE, env.BOARD_YSIZE)
-        actor.load_state_dict(torch.load(checkpoint_path))
-        actor.eval()
-        self._actor = actor
+class NNPolicy(Policy):
+    """Policy that sends inference requests to an inference server"""
 
+    _inference_request_queue: mp.Queue
+    _inference_response_queue: mp.Queue
+
+    def __init__(self, inference_request_queue: mp.Queue, inference_response_queue: mp.Queue):
+        self._inference_request_queue = inference_request_queue
+        self._inference_response_queue = inference_response_queue
+        
     def __call__(self, s: env.State) -> env.Action:
-        device = network.deviceof(self._actor)
-
-        action_probs = (
-            self._actor.forward(network.state_batch_to_tensor([s], device))[0]
-            .detach()
-            .cpu()
-            .numpy()
+        # Generate unique request ID
+        request_id = str(uuid.uuid4())
+        
+        # Send inference request
+        request = inference.InferenceRequest(
+            request_id=request_id,
+            state=s,
         )
-
+        self._inference_request_queue.put(request)
+        
+        # Wait for response with matching ID
+        while True:
+            response = self._inference_response_queue.get()
+            if response.request_id == request_id:
+                action_probs = response.action_probs
+                break
+            else:
+                # Put it back for other workers if it's not ours
+                self._inference_response_queue.put(response)
+        
+        # Apply legal mask and sample action
         legal_mask = s.legal_mask()
-
         raw_p = action_probs * legal_mask
         p = raw_p / np.sum(raw_p)
-
         chosen_action = env.Action(np.random.choice(len(p), p=p))
-
+        
         return chosen_action

@@ -8,7 +8,7 @@ from scipy.signal import convolve2d
 
 
 import env
-
+import network
 
 class Policy(BaseModel, ABC):
     @abstractmethod
@@ -418,28 +418,33 @@ class AlphaZeroNode:
         self.wins += result
 
 
-class AlphaZeroPolicy(Policy):
+class AlphaZeroCheckpointPolicy(Policy):
     """AlphaZero policy"""
-    
+    checkpoint_path: str
     simulations: int
     c_param: float
     randomness: float
     
     def __init__(
         self, 
+        checkpoint_path: str,
         simulations: int = 1000,
         c_param: float = 1.4142,
-        randomness: float = 0.0
+        randomness: float = 0.0,
     ) -> None:
         """
         Initialize MCTS Policy
         
         Args:
+            checkpoint_path: Path to the checkpoint file
             simulations: Number of simulations to run per move
             c_param: Exploration parameter for UCB1 (higher = more exploration)
             randomness: Probability of making a random move (0.0 = always use MCTS)
         """
-        super().__init__(simulations=simulations, c_param=c_param, randomness=randomness)
+        super().__init__(checkpoint_path=checkpoint_path, simulations=simulations, c_param=c_param, randomness=randomness)
+        self._alpha_zero_network = network.AlphaZeroNetwork(env.BOARD_XSIZE, env.BOARD_YSIZE)
+        self._alpha_zero_network.load_state_dict(torch.load(checkpoint_path))
+        self._alpha_zero_network.eval()
     
     def _simulate(self, node: AlphaZeroNode) -> float:
         """Run a random simulation from the given node to a terminal state"""
