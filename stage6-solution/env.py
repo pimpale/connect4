@@ -28,6 +28,9 @@ class State:
         # return the indices of the legal actions
         return np.where(self.legal_mask())[0]
 
+    def is_terminal(self) -> bool:
+        return is_winner(self, PLAYER1) or is_winner(self, PLAYER2) or drawn(self)
+
     def copy(self) -> Self:
         return State(self.board.copy(), self.current_player)
 

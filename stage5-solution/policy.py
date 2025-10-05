@@ -147,24 +147,12 @@ class MCTSNode:
         self.visits: int = 0
         self.wins: float = 0.0  # Win score from perspective of PLAYER1
         self.children: Dict[env.Action, MCTSNode] = {}
-        self.untried_actions: List[env.Action] = self._get_legal_actions()
+        self.untried_actions: List[env.Action] = list(self.state.legal_actions())
         
-    def _get_legal_actions(self) -> List[env.Action]:
-        """Get all legal actions from the current state"""
-        # Check which columns are not full
-        legal_actions: List[env.Action] = []
-        for col in range(self.state.board.shape[1]):
-            if self.state.board[-1, col] == 0:  # Top row is not occupied
-                legal_actions.append(env.Action(col))
-        return legal_actions
     
     def is_terminal(self) -> bool:
         """Check if this node represents a terminal state"""
-        # Check for winner
-        if env.is_winner(self.state, env.PLAYER1) or env.is_winner(self.state, env.PLAYER2):
-            return True
-        # Check for draw
-        return env.drawn(self.state)
+        return self.state.is_terminal()
     
     def is_fully_expanded(self) -> bool:
         """Check if all children have been expanded"""

@@ -39,9 +39,9 @@ def deviceof(m: nn.Module) -> torch.device:
     return next(m.parameters()).device
 
 
-class Actor(nn.Module):
+class AlphaZeroNetwork(nn.Module):
     def __init__(self, width: int, height: int):
-        super(Actor, self).__init__()
+        super(AlphaZeroNetwork, self).__init__()
 
         self.board_width = width
         self.board_height = height
@@ -51,7 +51,8 @@ class Actor(nn.Module):
             BOARD_CONV_FILTERS, BOARD_CONV_FILTERS, kernel_size=3, padding=0
         )
         self.fc1 = nn.Linear((width - 4) * (height - 4) * BOARD_CONV_FILTERS, 512)
-        self.fc2 = nn.Linear(512, width)
+        self.policy_head = nn.Linear(512, width)
+        self.value_head = nn.Linear(512, 1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # cast to float32
@@ -67,46 +68,12 @@ class Actor(nn.Module):
         # apply fully connected layers
         x = self.fc1(x)
         x = F.relu(x)
-        x = self.fc2(x)
+        policy_output = self.policy_head(x)
+        value_output = self.value_head(x)
+
         # output in (Batch, Width)
-        output = F.softmax(x, dim=1)
-        return output
-
-
-class Critic(nn.Module):
-    def __init__(self, width: int, height: int):
-        super(Critic, self).__init__()
-
-        self.board_width = width
-        self.board_height = height
-
-        self.conv1 = nn.Conv2d(2, BOARD_CONV_FILTERS, kernel_size=3, padding=0)
-        self.conv2 = nn.Conv2d(
-            BOARD_CONV_FILTERS, BOARD_CONV_FILTERS, kernel_size=3, padding=0
-        )
-        self.fc1 = nn.Linear((width - 4) * (height - 4) * BOARD_CONV_FILTERS, 512)
-        self.fc2 = nn.Linear(512, 1)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # cast to float32
-        # x in (Batch, Width, Height)
-        x = x.to(torch.float32)
-        # apply convolutions
-        x = self.conv1(x)
-        x = F.relu(x)
-        x = self.conv2(x)
-        x = F.relu(x)
-        # flatten everything except for batch
-        x = torch.flatten(x, 1)
-        # fully connected layers
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.fc2(x)
-        # delete extra dimension
-        # output in (Batch,)
-        output = x.view((x.shape[0]))
-        return output
-
+        policy_probs = F.softmax(policy_output, dim=1)
+        return policy_probs, value_output
 
 
 def compute_ppo_loss(
@@ -227,7 +194,7 @@ def train_ppo(
     return (actor_losses, [float(critic_loss)]*PPO_GRAD_DESCENT_STEPS)
 
 def compute_advantage(
-    critic: Critic,
+    critic: AlphaZeroNetwork,
     trajectory_states: list[env.State],
     trajectory_rewards: list[float],
 ) -> list[float]:
