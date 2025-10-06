@@ -4,13 +4,10 @@
     },
     {
         "type": "MinimaxPolicy",
-        "depth": 3,
-        "randomness": 0.0
+        "depth": 3
     },
     {
         "type": "MCTSPolicy",
-        "simulations": 100,
-        "c_param": 1.4142,
-        "randomness": 0.0
+        "simulations": 100
     }
 ]

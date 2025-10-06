@@ -154,7 +154,7 @@ class NNPolicy(Policy):
         )
         self._inference_request_queue.put(request)
 
-        # Wait for response with matching ID
+        # Wait for response
         response = self._inference_response_queue.get()
         action_probs = response.action_probs
 

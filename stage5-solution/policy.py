@@ -4,15 +4,22 @@ import numpy as np
 import math
 import random
 from pydantic import BaseModel
+import torch.multiprocessing as mp
 from scipy.signal import convolve2d
 
 
 import env
+import inference
+
+C_PARAM = 1.4142
 
 
 class Policy(BaseModel, ABC):
     @abstractmethod
     def __call__(self, env: env.Env) -> env.Action: ...
+
+    def name(self) -> str:
+        return self.fmt_config(self.model_dump())
 
     @classmethod
     def fmt_config(cls, model_dict: dict) -> str:
@@ -110,16 +117,11 @@ def minimax(
 
 class MinimaxPolicy(Policy):
     depth: int
-    randomness: float
 
-    def __init__(self, depth: int, randomness: float):
-        super().__init__(depth=depth, randomness=randomness)
+    def __init__(self, depth: int):
+        super().__init__(depth=depth)
 
     def __call__(self, s: env.State) -> env.Action:
-        # introduce some randomness
-        if np.random.random() < self.randomness:
-            return RandomPolicy()(s)
-
         # create a new env and set the state
         e = env.Env()
         e.state = s
@@ -129,78 +131,120 @@ class MinimaxPolicy(Policy):
         return chosen_action
 
 
+class NNPolicy(Policy):
+    """Policy that sends inference requests to an inference server"""
+
+    checkpoint_path: str
+    _inference_request_queue: mp.Queue
+    _inference_response_queue: mp.Queue
+    _worker_id: int
+
+    def __init__(
+        self,
+        inference_request_queue: mp.Queue,
+        inference_response_queue: mp.Queue,
+        worker_id: int,
+        checkpoint_path: str = "live_inference",
+    ):
+        super().__init__(checkpoint_path=checkpoint_path)
+        self._inference_request_queue = inference_request_queue
+        self._inference_response_queue = inference_response_queue
+        self._worker_id = worker_id
+
+    def __call__(self, s: env.State) -> env.Action:
+        # Send inference request
+        request = inference.InferenceRequest(
+            worker_id=self._worker_id,
+            state=s,
+        )
+        self._inference_request_queue.put(request)
+
+        # Wait for response
+        response = self._inference_response_queue.get()
+        action_probs = response.action_probs
+
+        # Apply legal mask and sample action
+        legal_mask = s.legal_mask()
+        raw_p = action_probs * legal_mask
+        p = raw_p / np.sum(raw_p)
+        chosen_action = env.Action(np.random.choice(len(p), p=p))
+
+        return chosen_action
+
+
 class MCTSNode:
     """Node in the Monte Carlo Tree Search tree"""
-    
+
     def __init__(
-        self, 
-        state: env.State, 
-        parent: Optional[Self] = None, 
+        self,
+        state: env.State,
+        parent: Optional[Self] = None,
         action: Optional[env.Action] = None,
-        player: env.Player = env.PLAYER1
+        player: env.Player = env.PLAYER1,
     ) -> None:
         self.state: env.State = state
         self.parent: Optional[MCTSNode] = parent
         self.action: Optional[env.Action] = action  # Action that led to this node
         self.player: env.Player = player  # Player who will make a move from this state
-        
+
         self.visits: int = 0
         self.wins: float = 0.0  # Win score from perspective of PLAYER1
         self.children: Dict[env.Action, MCTSNode] = {}
         self.untried_actions: List[env.Action] = list(self.state.legal_actions())
-        
-    
+
     def is_terminal(self) -> bool:
         """Check if this node represents a terminal state"""
         return self.state.is_terminal()
-    
+
     def is_fully_expanded(self) -> bool:
         """Check if all children have been expanded"""
         return len(self.untried_actions) == 0
-    
-    def best_child(self, c_param: float = 1.4142) -> Self:
+
+    def best_child(self) -> Self:
         """Select the best child using UCB1 formula"""
         choices_weights: List[float] = []
         for child in self.children.values():
             if child.visits == 0:
-                weight = float('inf')
+                weight = float("inf")
             else:
                 # UCB1 formula
                 exploitation = child.wins / child.visits
-                exploration = c_param * math.sqrt(2 * math.log(self.visits) / child.visits)
-                
+                exploration = C_PARAM * math.sqrt(
+                    2 * math.log(self.visits) / child.visits
+                )
+
                 # Adjust for the current player's perspective
                 if self.player == env.PLAYER2:
                     exploitation = -exploitation
-                    
+
                 weight = exploitation + exploration
             choices_weights.append(weight)
-        
+
         return list(self.children.values())[int(np.argmax(choices_weights))]
-    
+
     def expand(self) -> Self:
         """Expand the tree by creating a new child node"""
         action: env.Action = self.untried_actions.pop()
-        
+
         # Create a copy of the state and apply the action
         new_state = env.State(self.state.board.copy(), self.state.current_player)
-        
+
         # Find the first empty row in the chosen column and place the piece
         for row_idx in range(new_state.board.shape[0]):
             if new_state.board[row_idx, action] == 0:
                 new_state.board[row_idx, action] = self.player
                 break
-        
+
         # Create the child node with the opposite player
         child = MCTSNode(
             state=new_state,
             parent=self,
             action=action,
-            player=env.opponent(self.player)
+            player=env.opponent(self.player),
         )
         self.children[action] = child
         return child
-    
+
     def update(self, result: float) -> None:
         """Update node statistics after a simulation"""
         self.visits += 1
@@ -209,59 +253,47 @@ class MCTSNode:
 
 class MCTSPolicy(Policy):
     """Monte Carlo Tree Search policy"""
-    
+
     simulations: int
-    c_param: float
-    randomness: float
-    
+
     def __init__(
-        self, 
+        self,
         simulations: int = 1000,
-        c_param: float = 1.4142,
-        randomness: float = 0.0
     ) -> None:
         """
         Initialize MCTS Policy
-        
+
         Args:
             simulations: Number of simulations to run per move
-            c_param: Exploration parameter for UCB1 (higher = more exploration)
-            randomness: Probability of making a random move (0.0 = always use MCTS)
         """
-        super().__init__(simulations=simulations, c_param=c_param, randomness=randomness)
-    
+        super().__init__(simulations=simulations)
+
     def _simulate(self, node: MCTSNode) -> float:
         """Run a random simulation from the given node to a terminal state"""
         # Create a temporary environment copy for simulation
         temp_state = env.State(node.state.board.copy(), node.state.current_player)
         current_player = node.player
-        
+
         # Play random moves until the game ends
-        while not env.is_winner(temp_state, env.PLAYER1) and \
-              not env.is_winner(temp_state, env.PLAYER2) and \
-              not env.drawn(temp_state):
-            
+        while not temp_state.is_terminal():
             # Get legal actions
-            legal_actions: List[env.Action] = []
-            for col in range(temp_state.board.shape[1]):
-                if temp_state.board[-1, col] == 0:
-                    legal_actions.append(env.Action(col))
-            
+            legal_actions: list[env.Action] = list(temp_state.legal_actions())
+
             if not legal_actions:
                 break
-            
+
             # Choose a random action
             action = random.choice(legal_actions)
-            
+
             # Apply the action
             for row_idx in range(temp_state.board.shape[0]):
                 if temp_state.board[row_idx, action] == 0:
                     temp_state.board[row_idx, action] = current_player
                     break
-            
+
             # Switch player
             current_player = env.opponent(current_player)
-        
+
         # Return the result from PLAYER1's perspective
         if env.is_winner(temp_state, env.PLAYER1):
             return 1.0
@@ -269,67 +301,57 @@ class MCTSPolicy(Policy):
             return -1.0
         else:
             return 0.0  # Draw
-    
+
     def _mcts_search(self, root: MCTSNode) -> env.Action:
         """Run MCTS to find the best action"""
         simulations_run = 0
-        
+
         while simulations_run < self.simulations:
             node = root
-            
+
             # Selection: traverse the tree using UCB1
             while not node.is_terminal() and node.is_fully_expanded():
-                node = node.best_child(self.c_param)
-            
+                node = node.best_child()
+
             # Expansion: add a new child if not terminal
             if not node.is_terminal() and not node.is_fully_expanded():
                 node = node.expand()
-            
+
             # Simulation: run a random playout
             result = self._simulate(node)
-            
+
             # Backpropagation: update statistics
             while node is not None:
                 node.update(result)
                 node = node.parent
-            
+
             simulations_run += 1
-        
+
         # Choose the action with the highest visit count (most robust choice)
         best_action: Optional[env.Action] = None
         best_visits: int = -1
-        
+
         for action, child in root.children.items():
             if child.visits > best_visits:
                 best_visits = child.visits
                 best_action = action
-        
+
         return best_action if best_action is not None else env.Action(0)
-    
+
     def __call__(self, s: env.State) -> env.Action:
         """Make a move using MCTS"""
-        # Introduce randomness if specified
-        if np.random.random() < self.randomness:
-            return RandomPolicy()(s)
-        
         # Determine the current player based on the board state
         # Count the number of pieces to determine whose turn it is
         num_player1 = np.sum(s.board == env.PLAYER1)
         num_player2 = np.sum(s.board == env.PLAYER2)
         current_player = env.PLAYER1 if num_player1 == num_player2 else env.PLAYER2
-        
+
         # Create root node from current state
-        root = MCTSNode(
-            state=s.copy(),
-            parent=None,
-            action=None,
-            player=current_player
-        )
-        
+        root = MCTSNode(state=s.copy(), parent=None, action=None, player=current_player)
+
         # If there are legal actions, run MCTS
         if root.untried_actions or root.children:
             chosen_action = self._mcts_search(root)
             return chosen_action
-        
-        # Fallback to random policy if no action found
-        return RandomPolicy()(s)
+
+        raise ValueError("No action found. Terminal state reached.")
