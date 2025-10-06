@@ -54,7 +54,7 @@ class AlphaZeroNetwork(nn.Module):
         self.policy_head = nn.Linear(512, width)
         self.value_head = nn.Linear(512, 1)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         # cast to float32
         # x in (Batch, Channels, Width, Height)
         x = x.to(torch.float32)

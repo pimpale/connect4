@@ -3,7 +3,7 @@ import numpy as np
 import math
 from pydantic import BaseModel
 from scipy.signal import convolve2d
-import multiprocessing as mp
+import torch.multiprocessing as mp
 
 import env
 import inference
@@ -112,16 +112,11 @@ def minimax(
 
 class MinimaxPolicy(Policy):
     depth: int
-    randomness: float
 
-    def __init__(self, depth: int, randomness: float):
-        super().__init__(depth=depth, randomness=randomness)
+    def __init__(self, depth: int):
+        super().__init__(depth=depth)
 
     def __call__(self, s: env.State) -> env.Action:
-        # introduce some randomness
-        if np.random.random() < self.randomness:
-            return RandomPolicy()(s)
-
         # create a new env and set the state
         e = env.Env()
         e.state = s

@@ -57,8 +57,7 @@ def create_policy_from_config(config: Dict[str, Any]) -> policy.Policy:
     elif policy_type == 'MinimaxPolicy':
         # MinimaxPolicy needs depth and randomness
         depth = config.get('depth', 4)  # Default depth of 4
-        randomness = config.get('randomness', 0.0)  # Default no randomness
-        return policy.MinimaxPolicy(depth=depth, randomness=randomness)
+        return policy.MinimaxPolicy(depth=depth)
     
     elif policy_type == 'NNCheckpointPolicy':
         # NNCheckpointPolicy needs checkpoint path

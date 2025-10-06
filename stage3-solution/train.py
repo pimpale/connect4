@@ -57,6 +57,7 @@ class RolloutBatch:
 @dataclass
 class RolloutRequest:
     """Request to collect rollout data"""
+
     pass
 
 
@@ -116,8 +117,8 @@ def rollout_worker(
 
     # Create opponent pool
     opponent_pool = [
-        policy.MinimaxPolicy(depth=2, randomness=0.1),
-        policy.MinimaxPolicy(depth=2, randomness=0.3),
+        policy.MinimaxPolicy(depth=2),
+        policy.MinimaxPolicy(depth=3),
     ]
 
     while True:

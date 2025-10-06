@@ -7,7 +7,7 @@ import logging
 import torch.multiprocessing as mp
 import queue
 
-import network
+import a0network
 import env
 
 INFERENCE_BATCH_SIZE = 64  # Batch size for inference requests
@@ -28,6 +28,7 @@ class InferenceRequest:
 class InferenceResponse:
     """Response with inference results"""
 
+    value: np.ndarray
     action_probs: np.ndarray
 
 
@@ -42,12 +43,13 @@ class ModelUpdateRequest:
 @dataclass
 class ModelUpdateResponse:
     """Response with updated model parameters"""
+
     step: int
 
 
 # processess a batch of inference requests and sends the responses back to the inference_response_queue
 def process_inference_batch(
-    actor: network.Actor,
+    actor: a0network.AlphaZeroNetwork,
     inference_request_queue: mp.Queue,
     inference_response_queues: list[mp.Queue],
     device: torch.device,
@@ -69,16 +71,20 @@ def process_inference_batch(
 
     # Convert states to tensor batch
     states = [req.state for req in inference_batch]
-    state_tensor = network.state_batch_to_tensor(states, device)
+    state_tensor = a0network.state_batch_to_tensor(states, device)
 
     # Run inference
     with torch.inference_mode():
-        action_probs_batch = actor.forward(state_tensor).cpu().numpy()
+        action_probs_batch_tensor, value_batch_tensor = actor.forward(state_tensor)
+        action_probs_batch = action_probs_batch_tensor.cpu().numpy()
+        value_batch = value_batch_tensor.cpu().numpy()
 
     # Create responses
     for i, req in enumerate(inference_batch):
         worker_id = req.worker_id
-        response = InferenceResponse(action_probs=action_probs_batch[i])
+        response = InferenceResponse(
+            action_probs=action_probs_batch[i], value=value_batch[i]
+        )
         inference_response_queues[worker_id].put(response)
 
 
@@ -93,7 +99,7 @@ def inference_server(
     The actor is loaded from the checkpoint path and updated when the checkpoint is newer.
     """
 
-    actor = network.Actor(env.BOARD_XSIZE, env.BOARD_YSIZE)
+    actor = a0network.AlphaZeroNetwork(env.BOARD_XSIZE, env.BOARD_YSIZE)
     actor.to(device)
     actor.eval()
 

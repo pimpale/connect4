@@ -56,10 +56,9 @@ def create_policy_from_config(config: Dict[str, Any]) -> policy.Policy:
         return policy.RandomPolicy()
     
     elif policy_type == 'MinimaxPolicy':
-        # MinimaxPolicy needs depth and randomness
+        # MinimaxPolicy needs depth
         depth = config.get('depth', 4)  # Default depth of 4
-        randomness = config.get('randomness', 0.0)  # Default no randomness
-        return policy.MinimaxPolicy(depth=depth, randomness=randomness)
+        return policy.MinimaxPolicy(depth=depth)
     
     elif policy_type == 'NNCheckpointPolicy':
         # NNCheckpointPolicy needs checkpoint path
@@ -80,8 +79,7 @@ def get_policy_name(config: Dict[str, Any]) -> str:
         return "Random"
     elif policy_type == 'MinimaxPolicy':
         depth = config.get('depth', 4)
-        randomness = config.get('randomness', 0.0)
-        return f"Minimax(d={depth},r={randomness})"
+        return f"Minimax(d={depth})"
     elif policy_type == 'NNCheckpointPolicy':
         checkpoint_path = config.get('checkpoint_path', 'unknown')
         # Extract just the filename for brevity

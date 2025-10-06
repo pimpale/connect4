@@ -198,10 +198,9 @@ def create_policy_per_workers(
         elif policy_type == "MinimaxPolicy":
             # Create MinimaxPolicy for each worker
             depth = config.get("depth", 4)
-            randomness = config.get("randomness", 0.0)
             for _ in range(num_workers):
                 worker_policies.append(
-                    policy.MinimaxPolicy(depth=depth, randomness=randomness)
+                    policy.MinimaxPolicy(depth=depth)
                 )
 
         elif policy_type == "NNCheckpointPolicy":

@@ -5,10 +5,11 @@ import math
 import random
 from pydantic import BaseModel
 from scipy.signal import convolve2d
+import torch.multiprocessing as mp
 
 
 import env
-import network
+import a0inference
 
 class Policy(BaseModel, ABC):
     @abstractmethod
@@ -110,16 +111,11 @@ def minimax(
 
 class MinimaxPolicy(Policy):
     depth: int
-    randomness: float
 
-    def __init__(self, depth: int, randomness: float):
-        super().__init__(depth=depth, randomness=randomness)
+    def __init__(self, depth: int):
+        super().__init__(depth=depth)
 
     def __call__(self, s: env.State) -> env.Action:
-        # introduce some randomness
-        if np.random.random() < self.randomness:
-            return RandomPolicy()(s)
-
         # create a new env and set the state
         e = env.Env()
         e.state = s
@@ -418,12 +414,13 @@ class AlphaZeroNode:
         self.wins += result
 
 
-class AlphaZeroCheckpointPolicy(Policy):
+class AlphaZeroPolicy(Policy):
     """AlphaZero policy"""
     checkpoint_path: str
-    simulations: int
     c_param: float
-    randomness: float
+    _inference_request_queue: mp.Queue
+    _inference_response_queue: mp.Queue
+    _worker_id: int
     
     def __init__(
         self, 
@@ -442,7 +439,7 @@ class AlphaZeroCheckpointPolicy(Policy):
             randomness: Probability of making a random move (0.0 = always use MCTS)
         """
         super().__init__(checkpoint_path=checkpoint_path, simulations=simulations, c_param=c_param, randomness=randomness)
-        self._alpha_zero_network = network.AlphaZeroNetwork(env.BOARD_XSIZE, env.BOARD_YSIZE)
+        self._alpha_zero_network = a0network.AlphaZeroNetwork(env.BOARD_XSIZE, env.BOARD_YSIZE)
         self._alpha_zero_network.load_state_dict(torch.load(checkpoint_path))
         self._alpha_zero_network.eval()
     

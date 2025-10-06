@@ -4,17 +4,14 @@
     },
     {
         "type": "MinimaxPolicy",
-        "depth": 2,
-        "randomness": 0.1
+        "depth": 2
     },
     {
         "type": "MinimaxPolicy",
-        "depth": 3,
-        "randomness": 0.3
+        "depth": 3
     },
     {
         "type": "MinimaxPolicy",
-        "depth": 4,
-        "randomness": 0.0
+        "depth": 4
     }
 ]

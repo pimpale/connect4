@@ -122,12 +122,12 @@ def play_matchup(
     for worker in rollout_workers:
         worker.start()
 
+    # turn the result queue into a list
+    results = [result_queue.get() for _ in range(games_per_matchup)]
+
     # Wait for all workers to finish
     for worker in rollout_workers:
         worker.join()
-
-    # turn the result queue into a list
-    results = [result_queue.get() for _ in range(games_per_matchup)]
 
     return results
 
@@ -198,10 +198,9 @@ def create_policy_per_workers(
         elif policy_type == "MinimaxPolicy":
             # Create MinimaxPolicy for each worker
             depth = config.get("depth", 4)
-            randomness = config.get("randomness", 0.0)
             for _ in range(num_workers):
                 worker_policies.append(
-                    policy.MinimaxPolicy(depth=depth, randomness=randomness)
+                    policy.MinimaxPolicy(depth=depth)
                 )
 
         elif policy_type == "NNCheckpointPolicy":
@@ -581,17 +580,7 @@ Examples:
             sys.exit(1)
 
     # Run tournament
-    try:
-        run_tournament(agent_configs, args.num_games, args.workers)
-    except KeyboardInterrupt:
-        print("\nTournament interrupted by user")
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error during tournament: {e}", file=sys.stderr)
-        import traceback
-
-        traceback.print_exc()
-        sys.exit(1)
+    run_tournament(agent_configs, args.num_games, args.workers)
 
 
 if __name__ == "__main__":

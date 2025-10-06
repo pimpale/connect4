@@ -42,7 +42,6 @@ class ModelUpdateRequest:
 @dataclass
 class ModelUpdateResponse:
     """Response with updated model parameters"""
-
     step: int
 
 
