@@ -221,6 +221,7 @@ def create_policy_per_workers(
             for worker_id in range(num_workers):
                 worker_policies.append(
                     policy.NNPolicy(
+                        checkpoint_path=checkpoint_path,
                         inference_request_queue=server_data.request_queue,
                         inference_response_queue=server_data.response_queues[worker_id],
                         worker_id=worker_id,

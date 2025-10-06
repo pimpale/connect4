@@ -57,7 +57,6 @@ class RolloutBatch:
 @dataclass
 class RolloutRequest:
     """Request to collect rollout data"""
-
     pass
 
 

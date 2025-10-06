@@ -19,10 +19,10 @@ from dataclasses import dataclass
 from typing import List, Tuple
 import signal
 import sys
-import uuid
 
 import env
 import network
+import inference
 import policy
 
 # Set up logging
@@ -42,7 +42,6 @@ INFERENCE_BATCH_TIMEOUT = 0.01  # Max time to wait for a full batch (seconds)
 
 # Directory settings
 SUMMARY_DIR = "./summary"
-MODEL_DIR = "./models"
 
 
 # Message types for inter-process communication
@@ -58,77 +57,14 @@ class RolloutBatch:
 
 
 @dataclass
-class InferenceRequest:
-    """Request for neural network inference"""
-
-    request_id: str
-    state: env.State
-
-
-@dataclass
-class InferenceResponse:
-    """Response with inference results"""
-
-    request_id: str
-    action_probs: np.ndarray
-
-
-@dataclass
-class ModelUpdate:
-    """Updated model parameters from server"""
-
-    state_dict: dict
-    step: int
-
-
-@dataclass
-class TerminateSignal:
-    """Signal to terminate worker"""
+class RolloutRequest:
+    """Request to collect rollout data"""
 
     pass
 
 
-class RemoteNNPolicy:
-    """Policy that sends inference requests to the policy server"""
-
-    def __init__(
-        self, inference_request_queue: mp.Queue, inference_response_queue: mp.Queue
-    ):
-        self.inference_request_queue = inference_request_queue
-        self.inference_response_queue = inference_response_queue
-
-    def __call__(self, s: env.State) -> env.Action:
-        # Generate unique request ID
-        request_id = str(uuid.uuid4())
-
-        # Send inference request
-        request = InferenceRequest(
-            request_id=request_id,
-            state=s,
-        )
-        self.inference_request_queue.put(request)
-
-        # Wait for response with matching ID
-        while True:
-            response = self.inference_response_queue.get()
-            if response.request_id == request_id:
-                action_probs = response.action_probs
-                break
-            else:
-                # Put it back for other workers if it's not ours
-                self.inference_response_queue.put(response)
-
-        # Apply legal mask and sample action
-        legal_mask = s.legal_mask()
-        raw_p = action_probs * legal_mask
-        p = raw_p / np.sum(raw_p)
-        chosen_action = env.Action(np.random.choice(len(p), p=p))
-
-        return chosen_action
-
-
 def play_episode(
-    nn_policy: RemoteNNPolicy, opponent_policy: policy.Policy, nn_player: env.Player
+    nn_policy: policy.NNPolicy, opponent_policy: policy.Policy, nn_player: env.Player
 ) -> Tuple[List[env.State], List[env.Action], List[float]]:
     """Play a single episode and return trajectory data"""
     e = env.Env()
@@ -158,42 +94,38 @@ def play_episode(
 def rollout_worker(
     worker_id: int,
     rollouts_per_agent: int,
-    rollout_queue: mp.Queue,
+    rollout_request_queue: mp.Queue,
+    rollout_response_queue: mp.Queue,
     inference_request_queue: mp.Queue,
     inference_response_queue: mp.Queue,
-    terminate_queue: mp.Queue,
 ):
     """
     Rollout worker process that collects episodes.
 
     Args:
         worker_id: Unique identifier for this worker
-        rollout_queue: Queue to send rollout data to policy server
+        rollout_request_queue: Queue to recieve requests for rollout data from policy server
+        rollout_response_queue: Queue to send rollout data to policy server
         inference_request_queue: Queue to send inference requests
         inference_response_queue: Queue to receive inference responses
-        terminate_queue: Queue to receive termination signals
     """
     # Set random seed for this worker
     np.random.seed(RANDOM_SEED + worker_id)
 
     # Create RemoteNNPolicy for this worker
-    nn_player = RemoteNNPolicy(inference_request_queue, inference_response_queue)
+    nn_player = policy.NNPolicy(
+        inference_request_queue, inference_response_queue, worker_id
+    )
 
     # Create opponent pool
     opponent_pool = [
-        policy.MinimaxPolicy(depth=2, randomness=0.1),
-        policy.MinimaxPolicy(depth=2, randomness=0.3),
+        policy.MinimaxPolicy(depth=3, randomness=0.1),
+        policy.MinimaxPolicy(depth=3, randomness=0.3),
     ]
 
     while True:
-        # Check for termination signal (non-blocking)
-        try:
-            msg = terminate_queue.get_nowait()
-            if isinstance(msg, TerminateSignal):
-                logger.info(f"Worker {worker_id}: Received termination signal")
-                break
-        except queue.Empty:
-            pass
+        # await rollout request
+        _ = rollout_request_queue.get()
 
         # Collect episodes
         s_batch: List[env.State] = []
@@ -236,52 +168,16 @@ def rollout_worker(
             rewards_vs=rewards_vs,
             worker_id=worker_id,
         )
-        rollout_queue.put(rollout_data)
+        rollout_response_queue.put(rollout_data)
 
         logger.info(f"Worker {worker_id}: Sent batch with {len(s_batch)} transitions")
 
 
-# processess a batch of inference requests and sends the responses back to the inference_response_queue
-def process_inference_batch(
-    actor: network.Actor,
-    inference_request_queue: mp.Queue,
-    inference_response_queue: mp.Queue,
-    device: torch.device,
-):
-    """Process a batch of inference requests"""
-
-    # Process inference requests with batching
-    inference_batch = []
-    try:
-        # Try to build a full batch or wait until timeout
-        while len(inference_batch) < INFERENCE_BATCH_SIZE:
-            # if we have no requests, we must keep waiting
-            timeout = INFERENCE_BATCH_TIMEOUT if len(inference_batch) > 0 else None
-            request = inference_request_queue.get(timeout=timeout)
-            inference_batch.append(request)
-    except queue.Empty:
-        pass  # Timeout reached or no more requests
-
-    # Convert states to tensor batch
-    states = [req.state for req in inference_batch]
-    state_tensor = network.state_batch_to_tensor(states, device)
-
-    # Run inference
-    with torch.inference_mode():
-        action_probs_batch = actor.forward(state_tensor).cpu().numpy()
-
-    # Create responses
-    for i, req in enumerate(inference_batch):
-        response = InferenceResponse(
-            request_id=req.request_id, action_probs=action_probs_batch[i]
-        )
-        inference_response_queue.put(response)
-
-
-def policy_server(
-    rollout_queue: mp.Queue,
-    inference_request_queue: mp.Queue,
-    inference_response_queue: mp.Queue,
+def train_server(
+    rollout_request_queues: List[mp.Queue],
+    rollout_response_queue: mp.Queue,
+    model_update_request_queue: mp.Queue,
+    model_update_response_queue: mp.Queue,
     num_workers: int,
     device: str,
 ):
@@ -289,10 +185,10 @@ def policy_server(
     Policy server process that manages the neural network, handles inference, and performs training.
 
     Args:
-        rollout_queue: Queue to receive rollout data from workers
-        inference_request_queue: Queue to receive inference requests
-        inference_response_queue: Queue to send inference responses to workers
-        terminate_queues: List of queues to send termination signals to workers
+        rollout_request_queues: List of queues to send requests for rollout data to workers
+        rollout_response_queue: Queue to receive rollout data from workers
+        model_update_request_queue: Queue to send model update requests to inference server
+        model_update_response_queue: Queue to receive model update responses from inference server
         num_workers: Number of worker processes
         device: Device to use for training (cuda if available, else cpu)
     """
@@ -304,9 +200,12 @@ def policy_server(
     if not os.path.exists(SUMMARY_DIR):
         os.makedirs(SUMMARY_DIR)
 
+    # Initialize actor and optimizer
+    device = torch.device(device)
     actor = network.Actor(env.BOARD_XSIZE, env.BOARD_YSIZE).to(device)
     actor_optimizer = optim.Adam(actor.parameters(), lr=network.ACTOR_LR)
 
+    # Initialize critic and optimizer
     critic = network.Critic(env.BOARD_XSIZE, env.BOARD_YSIZE).to(device)
     critic_optimizer = optim.Adam(critic.parameters(), lr=network.CRITIC_LR)
 
@@ -320,20 +219,27 @@ def policy_server(
     logger.info(f"Policy Server: Started with {num_workers} workers on device {device}")
 
     while step < TRAIN_EPOCHS:
-        actor.eval()
-        critic.eval()
+        # Send model update to inference server
+        model_update_request_queue.put(
+            inference.ModelUpdateRequest(state_dict=actor.state_dict(), step=step)
+        )
+        logger.info(
+            f"Policy Server: Sent model update to inference server at step {step}"
+        )
+        model_update_response_queue.get()
+        logger.info(
+            f"Policy Server: Received model update response from inference server at step {step}"
+        )
+        for rollout_request_queue in rollout_request_queues:
+            rollout_request_queue.put(RolloutRequest())
+        logger.info(f"Policy Server: Sent rollout request to workers at step {step}")
 
         # process rollout batches until we have a full batch
         rollout_batches = []
         while len(rollout_batches) < num_workers:
-            # do some inference
-            process_inference_batch(
-                actor, inference_request_queue, inference_response_queue, device
-            )
-
             # get a rollout batch
             try:
-                rollout_data = rollout_queue.get(timeout=0)
+                rollout_data = rollout_response_queue.get(timeout=0)
                 rollout_batches.append(rollout_data)
                 batches_received += 1
             except queue.Empty:
@@ -361,8 +267,6 @@ def policy_server(
                     all_rewards_vs[opp_name] = rewards
 
         # Train the model
-        actor.train()
-        critic.train()
         actor_losses, critic_losses = network.train_ppo(
             actor,
             critic,
@@ -423,29 +327,45 @@ def main():
     num_workers = mp.cpu_count()
 
     # Create queues for communication
-    rollout_queue = mp.Queue(maxsize=num_workers * 2)  # Buffer for rollout data
+    rollout_request_queues = [mp.Queue(maxsize=1) for _ in range(num_workers)]
+    rollout_response_queue = mp.Queue(
+        maxsize=num_workers * 2
+    )  # Buffer for rollout data
+    model_update_request_queue = mp.Queue(100)  # Model update queue
+    model_update_response_queue = mp.Queue(100)  # Model update response queue
     inference_request_queue = mp.Queue(
         maxsize=num_workers * 100
     )  # Inference requests from all workers
-    inference_response_queue = mp.Queue(
-        maxsize=num_workers * 100
-    )  # Shared response queue for all workers
-    terminate_queues = [
-        mp.Queue(maxsize=1) for _ in range(num_workers)
-    ]  # Termination signals
+    inference_response_queues = [
+        mp.Queue(maxsize=num_workers * 100) for _ in range(num_workers)
+    ]
 
-    # Start policy server process
-    server_process = mp.Process(
-        target=policy_server,
+    # Start train server process
+    train_process = mp.Process(
+        target=train_server,
         args=(
-            rollout_queue,
-            inference_request_queue,
-            inference_response_queue,
+            rollout_request_queues,
+            rollout_response_queue,
+            model_update_request_queue,
+            model_update_response_queue,
             num_workers,
             device_str,
         ),
     )
-    server_process.start()
+    train_process.start()
+
+    # Start inference server process
+    inference_server_process = mp.Process(
+        target=inference.inference_server,
+        args=(
+            inference_request_queue,
+            inference_response_queues,
+            model_update_request_queue,
+            model_update_response_queue,
+            device_str,
+        ),
+    )
+    inference_server_process.start()
 
     # Start worker processes
     worker_processes = []
@@ -455,21 +375,24 @@ def main():
             args=(
                 i,
                 math.ceil(BATCH_SIZE_FOR_UPDATE / num_workers),
-                rollout_queue,
+                rollout_request_queues[i],
+                rollout_response_queue,
                 inference_request_queue,
-                inference_response_queue,
-                terminate_queues[i],
+                inference_response_queues[i],
             ),
         )
         worker_process.start()
         worker_processes.append(worker_process)
 
-    logger.info(f"Started {num_workers} rollout workers and 1 policy server")
+    logger.info(
+        f"Started {num_workers} rollout workers, 1 train server, and 1 inference server"
+    )
 
     # Handle graceful shutdown
     def signal_handler(sig, frame):
         logger.info("\nShutting down training...")
-        server_process.terminate()
+        train_process.terminate()
+        inference_server_process.terminate()
         for p in worker_processes:
             p.terminate()
         sys.exit(0)
@@ -477,16 +400,16 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
 
     try:
-        # Wait for server process to complete
-        server_process.join()
-
+        # Wait for train and inference servers to complete
+        train_process.join()
+        inference_server_process.join()
         # Wait for all workers to complete
         for p in worker_processes:
             p.join()
 
     except KeyboardInterrupt:
         logger.info("\nInterrupted, cleaning up...")
-        server_process.terminate()
+        train_process.terminate()
         for p in worker_processes:
             p.terminate()
 
