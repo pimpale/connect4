@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class InferenceRequest:
     """Request for neural network inference"""
 
-    request_id: str
+    worker_id: int
     state: env.State
 
 
@@ -28,7 +28,6 @@ class InferenceRequest:
 class InferenceResponse:
     """Response with inference results"""
 
-    request_id: str
     action_probs: np.ndarray
 
 
@@ -51,7 +50,7 @@ class ModelUpdateResponse:
 def process_inference_batch(
     actor: network.Actor,
     inference_request_queue: mp.Queue,
-    inference_response_queue: mp.Queue,
+    inference_response_queues: list[mp.Queue],
     device: torch.device,
 ):
     """Process a batch of inference requests"""
@@ -79,15 +78,14 @@ def process_inference_batch(
 
     # Create responses
     for i, req in enumerate(inference_batch):
-        response = InferenceResponse(
-            request_id=req.request_id, action_probs=action_probs_batch[i]
-        )
-        inference_response_queue.put(response)
+        worker_id = req.worker_id
+        response = InferenceResponse(action_probs=action_probs_batch[i])
+        inference_response_queues[worker_id].put(response)
 
 
 def inference_server(
     inference_request_queue: mp.Queue,
-    inference_response_queue: mp.Queue,
+    inference_response_queues: list[mp.Queue],
     model_update_request_queue: mp.Queue,
     model_update_response_queue: mp.Queue,
     device: torch.device,
@@ -119,7 +117,7 @@ def inference_server(
         # process inference batch
         try:
             process_inference_batch(
-                actor, inference_request_queue, inference_response_queue, device
+                actor, inference_request_queue, inference_response_queues, device
             )
         except queue.Empty:
             # we use this as an opportunity to wait for a model update

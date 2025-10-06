@@ -111,7 +111,9 @@ def rollout_worker(
     np.random.seed(RANDOM_SEED + worker_id)
 
     # Create RemoteNNPolicy for this worker
-    nn_player = policy.NNPolicy(inference_request_queue, inference_response_queue)
+    nn_player = policy.NNPolicy(
+        inference_request_queue, inference_response_queue, worker_id
+    )
 
     # Create opponent pool
     opponent_pool = [
@@ -310,9 +312,9 @@ def main():
     inference_request_queue = mp.Queue(
         maxsize=num_workers * 100
     )  # Inference requests from all workers
-    inference_response_queue = mp.Queue(
-        maxsize=num_workers * 100
-    )  # Shared response queue for all workers
+    inference_response_queues = [
+        mp.Queue(maxsize=num_workers * 100) for _ in range(num_workers)
+    ]
 
     # Start train server process
     train_process = mp.Process(
@@ -333,7 +335,7 @@ def main():
         target=inference.inference_server,
         args=(
             inference_request_queue,
-            inference_response_queue,
+            inference_response_queues,
             model_update_request_queue,
             model_update_response_queue,
             device_str,
@@ -352,7 +354,7 @@ def main():
                 rollout_request_queues[i],
                 rollout_response_queue,
                 inference_request_queue,
-                inference_response_queue,
+                inference_response_queues[i],
             ),
         )
         worker_process.start()
