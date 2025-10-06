@@ -17,6 +17,9 @@ class Policy(BaseModel, ABC):
     @abstractmethod
     def __call__(self, env: env.Env) -> env.Action: ...
 
+    def name(self) -> str:
+        return self.fmt_config(self.model_dump())
+
     @classmethod
     def fmt_config(cls, model_dict: dict) -> str:
         # print like this: {policy_class.__name__}(key=value, key=value, ...)
@@ -135,6 +138,7 @@ class MinimaxPolicy(Policy):
 class NNPolicy(Policy):
     """Policy that sends inference requests to an inference server"""
 
+    checkpoint_path: str
     _inference_request_queue: mp.Queue
     _inference_response_queue: mp.Queue
     _worker_id: int
@@ -144,7 +148,9 @@ class NNPolicy(Policy):
         inference_request_queue: mp.Queue,
         inference_response_queue: mp.Queue,
         worker_id: int,
+        checkpoint_path: str = "live_inference",
     ):
+        super().__init__(checkpoint_path=checkpoint_path)
         self._inference_request_queue = inference_request_queue
         self._inference_response_queue = inference_response_queue
         self._worker_id = worker_id
