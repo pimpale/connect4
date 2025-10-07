@@ -9,5 +9,9 @@
     {
         "type": "MCTSPolicy",
         "simulations": 100
+    },
+    {
+        "type": "MCTSPolicy",
+        "simulations": 10
     }
 ]

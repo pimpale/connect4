@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Self, Optional, Dict, List
+from typing import Self
 import numpy as np
 import math
 import random
@@ -175,22 +175,31 @@ class NNPolicy(Policy):
 class MCTSNode:
     """Node in the Monte Carlo Tree Search tree"""
 
+    state: env.State
+    player: env.Player
+    parent: Self | None
+    action: env.Action | None
+    visits: int
+    wins: float
+    children: dict[env.Action, Self]
+    untried_actions: list[env.Action]
+
     def __init__(
         self,
         state: env.State,
-        parent: Optional[Self] = None,
-        action: Optional[env.Action] = None,
-        player: env.Player = env.PLAYER1,
+        to_play: env.Player,
+        parent: Self | None = None,
+        action: env.Action | None = None,  # only none for the root node
     ) -> None:
-        self.state: env.State = state
-        self.parent: Optional[MCTSNode] = parent
-        self.action: Optional[env.Action] = action  # Action that led to this node
-        self.player: env.Player = player  # Player who will make a move from this state
+        self.state = state
+        self.player = to_play  # Player who will make a move from this state
+        self.parent = parent
+        self.action = action  # Action that led to this node
 
         self.visits: int = 0
-        self.wins: float = 0.0  # Win score from perspective of PLAYER1
-        self.children: Dict[env.Action, MCTSNode] = {}
-        self.untried_actions: List[env.Action] = list(self.state.legal_actions())
+        self.wins: float = 0.0  # win score from perspective of to_play
+        self.children = {}
+        self.untried_actions = list(self.state.legal_actions())
 
     def is_terminal(self) -> bool:
         """Check if this node represents a terminal state"""
@@ -200,47 +209,46 @@ class MCTSNode:
         """Check if all children have been expanded"""
         return len(self.untried_actions) == 0
 
+    @property
+    def q_value(self) -> float:
+        """Returns the mean action value of taking the action from the parent node"""
+        return self.wins / self.visits
+
+    @property
+    def u_value(self) -> float:
+        """Returns the exploration score of the node based on UCB1 formula"""
+        if self.visits == 0:
+            return float("inf")
+        return C_PARAM * math.sqrt(math.log(self.parent.visits) / self.visits)
+
     def best_child(self) -> Self:
         """Select the best child using UCB1 formula"""
-        choices_weights: List[float] = []
+        best_child = None
+        best_weight = -math.inf
         for child in self.children.values():
-            if child.visits == 0:
-                weight = float("inf")
-            else:
-                # UCB1 formula
-                exploitation = child.wins / child.visits
-                exploration = C_PARAM * math.sqrt(
-                    2 * math.log(self.visits) / child.visits
-                )
+            # remember that the child is of the opposite player, and thus it's q_value is from the perspective of the opponent player
+            weight = child.u_value - child.q_value
+            if weight > best_weight:
+                best_weight = weight
+                best_child = child
 
-                # Adjust for the current player's perspective
-                if self.player == env.PLAYER2:
-                    exploitation = -exploitation
-
-                weight = exploitation + exploration
-            choices_weights.append(weight)
-
-        return list(self.children.values())[int(np.argmax(choices_weights))]
+        return best_child
 
     def expand(self) -> Self:
         """Expand the tree by creating a new child node"""
         action: env.Action = self.untried_actions.pop()
 
         # Create a copy of the state and apply the action
-        new_state = env.State(self.state.board.copy(), self.state.current_player)
-
-        # Find the first empty row in the chosen column and place the piece
-        for row_idx in range(new_state.board.shape[0]):
-            if new_state.board[row_idx, action] == 0:
-                new_state.board[row_idx, action] = self.player
-                break
+        e = env.Env()
+        e.state = self.state.copy()
+        e.step(action)
 
         # Create the child node with the opposite player
         child = MCTSNode(
-            state=new_state,
+            state=e.state,
             parent=self,
             action=action,
-            player=env.opponent(self.player),
+            to_play=env.opponent(self.player),
         )
         self.children[action] = child
         return child
@@ -271,42 +279,31 @@ class MCTSPolicy(Policy):
     def _simulate(self, node: MCTSNode) -> float:
         """Run a random simulation from the given node to a terminal state"""
         # Create a temporary environment copy for simulation
-        temp_state = env.State(node.state.board.copy(), node.state.current_player)
-        current_player = node.player
+        e = env.Env()
+        e.state = node.state.copy()
 
         # Play random moves until the game ends
-        while not temp_state.is_terminal():
+        while not e.state.is_terminal():
             # Get legal actions
-            legal_actions: list[env.Action] = list(temp_state.legal_actions())
-
-            if not legal_actions:
-                break
+            legal_actions: list[env.Action] = list(e.state.legal_actions())
 
             # Choose a random action
             action = random.choice(legal_actions)
 
             # Apply the action
-            for row_idx in range(temp_state.board.shape[0]):
-                if temp_state.board[row_idx, action] == 0:
-                    temp_state.board[row_idx, action] = current_player
-                    break
+            e.step(action)
 
-            # Switch player
-            current_player = env.opponent(current_player)
-
-        # Return the result from PLAYER1's perspective
-        if env.is_winner(temp_state, env.PLAYER1):
+        # Return the result from the node's player's perspective
+        if env.is_winner(e.state, node.player):
             return 1.0
-        elif env.is_winner(temp_state, env.PLAYER2):
+        elif env.is_winner(e.state, env.opponent(node.player)):
             return -1.0
         else:
-            return 0.0  # Draw
+            return 0.0
 
     def _mcts_search(self, root: MCTSNode) -> env.Action:
         """Run MCTS to find the best action"""
-        simulations_run = 0
-
-        while simulations_run < self.simulations:
+        for _ in range(self.simulations):
             node = root
 
             # Selection: traverse the tree using UCB1
@@ -324,11 +321,10 @@ class MCTSPolicy(Policy):
             while node is not None:
                 node.update(result)
                 node = node.parent
-
-            simulations_run += 1
+                result = -result
 
         # Choose the action with the highest visit count (most robust choice)
-        best_action: Optional[env.Action] = None
+        best_action: env.Action | None = None
         best_visits: int = -1
 
         for action, child in root.children.items():
@@ -336,22 +332,15 @@ class MCTSPolicy(Policy):
                 best_visits = child.visits
                 best_action = action
 
-        return best_action if best_action is not None else env.Action(0)
+        if best_action is None:
+            raise ValueError("No action found. Terminal state reached.")
+
+        return best_action
 
     def __call__(self, s: env.State) -> env.Action:
         """Make a move using MCTS"""
-        # Determine the current player based on the board state
-        # Count the number of pieces to determine whose turn it is
-        num_player1 = np.sum(s.board == env.PLAYER1)
-        num_player2 = np.sum(s.board == env.PLAYER2)
-        current_player = env.PLAYER1 if num_player1 == num_player2 else env.PLAYER2
-
         # Create root node from current state
-        root = MCTSNode(state=s.copy(), parent=None, action=None, player=current_player)
-
-        # If there are legal actions, run MCTS
-        if root.untried_actions or root.children:
-            chosen_action = self._mcts_search(root)
-            return chosen_action
-
-        raise ValueError("No action found. Terminal state reached.")
+        root = MCTSNode(
+            state=s.copy(), parent=None, action=None, to_play=s.current_player
+        )
+        return self._mcts_search(root)
