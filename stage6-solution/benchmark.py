@@ -71,7 +71,7 @@ def create_policy_from_config(config: Dict[str, Any]) -> policy.Policy:
         simulations = config.get('simulations', 1000)
         c_param = config.get('c_param', 1.4142)
         randomness = config.get('randomness', 0.0)
-        return policy.MCTSPolicy(simulations=simulations, c_param=c_param, randomness=randomness)
+        return policy.AlphaZeroPolicy(simulations=simulations, c_param=c_param, randomness=randomness)
     
     else:
         raise ValueError(f"Unknown policy type: {policy_type}")
@@ -135,8 +135,11 @@ def play_single_game(args: Tuple[int, Dict[str, Any], Dict[str, Any], bool]) -> 
         current_player = e.state.current_player
         active_policy = policies[current_player]
         
-        # Get action from policy
-        action = active_policy(e.state)
+        # Get action probability distribution from policy
+        action_probs = active_policy(e.state)
+        
+        # Sample action from the distribution
+        action = env.Action(np.random.choice(len(action_probs), p=action_probs))
         
         # Make the move
         e.step(action)

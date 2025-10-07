@@ -11,7 +11,8 @@ import inference
 
 class Policy(BaseModel, ABC):
     @abstractmethod
-    def __call__(self, env: env.Env) -> env.Action: ...
+    def __call__(self, s: env.State) -> np.ndarray:
+        ...
 
     def name(self) -> str:
         return self.fmt_config(self.model_dump())
@@ -27,23 +28,26 @@ class RandomPolicy(Policy):
     def __init__(self) -> None:
         super().__init__()
 
-    def __call__(self, s: env.State) -> env.Action:
+    def __call__(self, s: env.State) -> np.ndarray:
         legal_mask = s.legal_mask()
         p = legal_mask / np.sum(legal_mask)
-        return env.Action(np.random.choice(len(p), p=p))
+        return p
 
 
 class HumanPolicy(Policy):
     def __init__(self) -> None:
         super().__init__()
 
-    def __call__(self, s: env.State) -> env.Action:
+    def __call__(self, s: env.State) -> np.ndarray:
         env.print_state(s)
         print("0 1 2 3 4 5 6")
         legal_mask = s.legal_mask()
         print("legal mask:", legal_mask)
         chosen_action = np.int8(input("Choose action: "))
-        return env.Action(chosen_action)
+        # Return one-hot vector
+        action_probs = np.zeros(env.BOARD_XSIZE, dtype=np.float32)
+        action_probs[chosen_action] = 1.0
+        return action_probs
 
 
 def heuristic(s: env.State) -> float:
@@ -116,14 +120,17 @@ class MinimaxPolicy(Policy):
     def __init__(self, depth: int):
         super().__init__(depth=depth)
 
-    def __call__(self, s: env.State) -> env.Action:
+    def __call__(self, s: env.State) -> np.ndarray:
         # create a new env and set the state
         e = env.Env()
         e.state = s
 
         _, chosen_action = minimax(e, self.depth, -math.inf, math.inf)
 
-        return chosen_action
+        # Return one-hot vector
+        action_probs = np.zeros(env.BOARD_XSIZE, dtype=np.float32)
+        action_probs[chosen_action] = 1.0
+        return action_probs
 
 
 class NNPolicy(Policy):
@@ -146,7 +153,7 @@ class NNPolicy(Policy):
         self._inference_response_queue = inference_response_queue
         self._worker_id = worker_id
 
-    def __call__(self, s: env.State) -> env.Action:
+    def __call__(self, s: env.State) -> np.ndarray:
         # Send inference request
         request = inference.InferenceRequest(
             worker_id=self._worker_id,
@@ -158,10 +165,9 @@ class NNPolicy(Policy):
         response = self._inference_response_queue.get()
         action_probs = response.action_probs
 
-        # Apply legal mask and sample action
+        # Apply legal mask and normalize
         legal_mask = s.legal_mask()
         raw_p = action_probs * legal_mask
         p = raw_p / np.sum(raw_p)
-        chosen_action = env.Action(np.random.choice(len(p), p=p))
 
-        return chosen_action
+        return p

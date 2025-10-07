@@ -1,6 +1,4 @@
 from abc import ABC, abstractmethod
-import random
-from typing import Self
 import numpy as np
 import math
 from pydantic import BaseModel
@@ -14,7 +12,7 @@ import network
 
 class Policy(BaseModel, ABC):
     @abstractmethod
-    def __call__(self, env: env.Env) -> env.Action: ...
+    def __call__(self, s: env.State) -> np.ndarray: ...
 
     @classmethod
     def fmt_config(cls, model_dict: dict) -> str:
@@ -27,10 +25,10 @@ class RandomPolicy(Policy):
     def __init__(self) -> None:
         super().__init__()
 
-    def __call__(self, s: env.State) -> env.Action:
+    def __call__(self, s: env.State) -> np.ndarray:
         legal_mask = s.legal_mask()
         p = legal_mask / np.sum(legal_mask)
-        return env.Action(np.random.choice(len(p), p=p))
+        return p
 
 
 def heuristic(s: env.State) -> float:
@@ -104,7 +102,7 @@ class MinimaxPolicy(Policy):
     def __init__(self, depth: int, randomness: float):
         super().__init__(depth=depth, randomness=randomness)
 
-    def __call__(self, s: env.State) -> env.Action:
+    def __call__(self, s: env.State) -> np.ndarray:
         # introduce some randomness
         if np.random.random() < self.randomness:
             return RandomPolicy()(s)
@@ -115,7 +113,10 @@ class MinimaxPolicy(Policy):
 
         _, chosen_action = minimax(e, self.depth, -math.inf, math.inf)
 
-        return chosen_action
+        # Return one-hot vector
+        action_probs = np.zeros(env.BOARD_XSIZE, dtype=np.float32)
+        action_probs[chosen_action] = 1.0
+        return action_probs
 
 class NNCheckpointPolicy(Policy):
     _actor: network.Actor
@@ -133,7 +134,7 @@ class NNCheckpointPolicy(Policy):
         self.checkpoint_path = checkpoint_path
         self._actor = actor
 
-    def __call__(self, s: env.State) -> env.Action:
+    def __call__(self, s: env.State) -> np.ndarray:
         # ======== PART 5 ========
         # TODO: Use the loaded actor to select an action
         # Steps:
@@ -141,6 +142,4 @@ class NNCheckpointPolicy(Policy):
         # 2. Convert the state to a tensor batch
         # 3. Forward pass through the actor to get action probabilities
         # 4. Apply legal mask and normalize probabilities
-        # 5. Sample an action from the probability distribution
-        # Return the chosen action
         pass

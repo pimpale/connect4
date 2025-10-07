@@ -54,8 +54,11 @@ def play_single_game(
         current_player = e.state.current_player
         active_policy = policies[current_player]
 
-        # Get action from policy
-        action = active_policy(e.state)
+        # Get action probability distribution from policy
+        action_probs = active_policy(e.state)
+        
+        # Sample action from the distribution
+        action = env.Action(np.random.choice(len(action_probs), p=action_probs))
 
         # Make the move
         e.step(action)

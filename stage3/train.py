@@ -86,7 +86,7 @@ class RemoteNNPolicy:
         self.inference_request_queue = inference_request_queue
         self.inference_response_queue = inference_response_queue
         
-    def __call__(self, s: env.State) -> env.Action:
+    def __call__(self, s: env.State) -> np.ndarray:
         # ======== PART 6 ========
         # TODO: Implement remote inference
         # Steps:
@@ -96,8 +96,7 @@ class RemoteNNPolicy:
         # 4. Wait for response with matching ID from inference_response_queue
         #    (Put back responses that don't match our ID)
         # 5. Apply legal mask to action probabilities
-        # 6. Sample action from the distribution
-        # Return the chosen action
+        # 6. Return probability distribution (not a single action)
         pass
 
 
@@ -117,13 +116,15 @@ def play_episode(
     while not e.game_over():
         if nn_player == current_player:
             s = e.state.copy()
-            chosen_action = nn_policy(s)
+            action_probs = nn_policy(s)
+            chosen_action = env.Action(np.random.choice(len(action_probs), p=action_probs))
             reward = e.step(chosen_action)
             s_t.append(s)
             a_t.append(chosen_action)
             r_t.append(reward)
         else:
-            opponent_action = opponent_policy(e.state)
+            action_probs = opponent_policy(e.state)
+            opponent_action = env.Action(np.random.choice(len(action_probs), p=action_probs))
             e.step(opponent_action)
 
         current_player = env.opponent(current_player)

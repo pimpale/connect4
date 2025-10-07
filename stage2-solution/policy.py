@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-from typing import Self
 import numpy as np
 import math
 from pydantic import BaseModel
@@ -11,7 +10,7 @@ import env
 
 class Policy(BaseModel, ABC):
     @abstractmethod
-    def __call__(self, env: env.Env) -> env.Action: ...
+    def __call__(self, s: env.State) -> np.ndarray: ...
 
     @classmethod
     def fmt_config(cls, model_dict: dict) -> str:
@@ -24,23 +23,26 @@ class RandomPolicy(Policy):
     def __init__(self) -> None:
         super().__init__()
 
-    def __call__(self, s: env.State) -> env.Action:
+    def __call__(self, s: env.State) -> np.ndarray:
         legal_mask = s.legal_mask()
         p = legal_mask / np.sum(legal_mask)
-        return env.Action(np.random.choice(len(p), p=p))
+        return p
 
 
 class HumanPolicy(Policy):
     def __init__(self) -> None:
         super().__init__()
 
-    def __call__(self, s: env.State) -> env.Action:
+    def __call__(self, s: env.State) -> np.ndarray:
         env.print_state(s)
         print("0 1 2 3 4 5 6")
         legal_mask = s.legal_mask()
         print("legal mask:", legal_mask)
         chosen_action = np.int8(input("Choose action: "))
-        return env.Action(chosen_action)
+        # Return one-hot vector
+        action_probs = np.zeros(env.BOARD_XSIZE, dtype=np.float32)
+        action_probs[chosen_action] = 1.0
+        return action_probs
 
 
 def heuristic(s: env.State) -> float:
@@ -113,11 +115,14 @@ class MinimaxPolicy(Policy):
     def __init__(self, depth: int):
         super().__init__(depth=depth)
 
-    def __call__(self, s: env.State) -> env.Action:
+    def __call__(self, s: env.State) -> np.ndarray:
         # create a new env and set the state
         e = env.Env()
         e.state = s
 
         _, chosen_action = minimax(e, self.depth, -math.inf, math.inf)
 
-        return chosen_action
+        # Return one-hot vector
+        action_probs = np.zeros(env.BOARD_XSIZE, dtype=np.float32)
+        action_probs[chosen_action] = 1.0
+        return action_probs

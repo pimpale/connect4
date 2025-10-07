@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from typing import Self
 import numpy as np
 import math
-import random
 from pydantic import BaseModel
 import torch.multiprocessing as mp
 from scipy.signal import convolve2d
@@ -16,7 +15,7 @@ C_PARAM = 1.4142
 
 class Policy(BaseModel, ABC):
     @abstractmethod
-    def __call__(self, env: env.Env) -> env.Action: ...
+    def __call__(self, s: env.State) -> np.ndarray: ...
 
     def name(self) -> str:
         return self.fmt_config(self.model_dump())
@@ -32,23 +31,25 @@ class RandomPolicy(Policy):
     def __init__(self) -> None:
         super().__init__()
 
-    def __call__(self, s: env.State) -> env.Action:
+    def __call__(self, s: env.State) -> np.ndarray:
         legal_mask = s.legal_mask()
         p = legal_mask / np.sum(legal_mask)
-        return env.Action(np.random.choice(len(p), p=p))
+        return p
 
 
 class HumanPolicy(Policy):
     def __init__(self) -> None:
         super().__init__()
 
-    def __call__(self, s: env.State) -> env.Action:
+    def __call__(self, s: env.State) -> np.ndarray:
         env.print_state(s)
         print("0 1 2 3 4 5 6")
         legal_mask = s.legal_mask()
         print("legal mask:", legal_mask)
         chosen_action = np.int8(input("Choose action: "))
-        return env.Action(chosen_action)
+        action_probs = np.zeros(env.BOARD_XSIZE, dtype=np.float32)
+        action_probs[chosen_action] = 1.0
+        return action_probs
 
 
 def heuristic(s: env.State) -> float:
@@ -121,14 +122,16 @@ class MinimaxPolicy(Policy):
     def __init__(self, depth: int):
         super().__init__(depth=depth)
 
-    def __call__(self, s: env.State) -> env.Action:
+    def __call__(self, s: env.State) -> np.ndarray:
         # create a new env and set the state
         e = env.Env()
         e.state = s
 
         _, chosen_action = minimax(e, self.depth, -math.inf, math.inf)
 
-        return chosen_action
+        action_probs = np.zeros(env.BOARD_XSIZE, dtype=np.float32)
+        action_probs[chosen_action] = 1.0
+        return action_probs
 
 
 class NNPolicy(Policy):
@@ -151,7 +154,7 @@ class NNPolicy(Policy):
         self._inference_response_queue = inference_response_queue
         self._worker_id = worker_id
 
-    def __call__(self, s: env.State) -> env.Action:
+    def __call__(self, s: env.State) -> np.ndarray:
         # Send inference request
         request = inference.InferenceRequest(
             worker_id=self._worker_id,
@@ -163,13 +166,12 @@ class NNPolicy(Policy):
         response = self._inference_response_queue.get()
         action_probs = response.action_probs
 
-        # Apply legal mask and sample action
+        # Apply legal mask and normalize
         legal_mask = s.legal_mask()
         raw_p = action_probs * legal_mask
         p = raw_p / np.sum(raw_p)
-        chosen_action = env.Action(np.random.choice(len(p), p=p))
 
-        return chosen_action
+        return p
 
 
 class MCTSNode:
@@ -284,13 +286,7 @@ class MCTSPolicy(Policy):
 
         # Play random moves until the game ends
         while not e.state.is_terminal():
-            # Get legal actions
-            legal_actions: list[env.Action] = list(e.state.legal_actions())
-
-            # Choose a random action
-            action = random.choice(legal_actions)
-
-            # Apply the action
+            action = np.random.choice(e.state.legal_actions())
             e.step(action)
 
         # Return the result from the node's player's perspective
@@ -337,10 +333,14 @@ class MCTSPolicy(Policy):
 
         return best_action
 
-    def __call__(self, s: env.State) -> env.Action:
+    def __call__(self, s: env.State) -> np.ndarray:
         """Make a move using MCTS"""
         # Create root node from current state
         root = MCTSNode(
             state=s.copy(), parent=None, action=None, to_play=s.current_player
         )
-        return self._mcts_search(root)
+        best_action = self._mcts_search(root)
+        
+        action_probs = np.zeros(env.BOARD_XSIZE, dtype=np.float32)
+        action_probs[best_action] = 1.0
+        return action_probs

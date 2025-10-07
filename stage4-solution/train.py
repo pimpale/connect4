@@ -77,13 +77,15 @@ def play_episode(
     while not e.game_over():
         if nn_player == current_player:
             s = e.state.copy()
-            chosen_action = nn_policy(s)
+            action_probs = nn_policy(s)
+            chosen_action = env.Action(np.random.choice(len(action_probs), p=action_probs))
             reward = e.step(chosen_action)
             s_t.append(s)
             a_t.append(chosen_action)
             r_t.append(reward)
         else:
-            opponent_action = opponent_policy(e.state)
+            action_probs = opponent_policy(e.state)
+            opponent_action = env.Action(np.random.choice(len(action_probs), p=action_probs))
             e.step(opponent_action)
 
         current_player = env.opponent(current_player)
